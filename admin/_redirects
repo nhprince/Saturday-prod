@@ -1,0 +1,4 @@
+# Cloudflare Pages proxy: makes the API same-origin, so the frontend can use
+# window.SATURDAY_CONFIG.apiBase = 'same-origin' with zero CORS setup.
+# Replace with your actual deployed Worker URL.
+/api/*  https://saturday-api.your-subdomain.workers.dev/api/:splat  200

@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development. Never commit the real file.
+NVIDIA_NIM_API_KEY=
+OPENROUTER_API_KEY=
+CLOUDFLARE_API_KEY=
+CLOUDFLARE_ACCOUNT_ID=
+ADMIN_TOKEN_SECRET=change-me
+ADMIN_PASSWORD=change-me

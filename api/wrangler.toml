@@ -1,0 +1,44 @@
+name = "saturday-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# --- Free-tier storage ---------------------------------------------------
+# KV holds the model registry, health records and circuit-breaker state.
+[[kv_namespaces]]
+binding = "REGISTRY"
+id = "replace-with-your-kv-id"
+
+# D1 holds conversations, users, admin config and audit rows.
+[[d1_databases]]
+binding = "DB"
+database_name = "saturday"
+database_id = "replace-with-your-d1-id"
+
+# Workers AI — free allocation, used as a provider and as a fallback.
+[ai]
+binding = "AI"
+
+# R2 is optional; only needed once attachments are stored server-side.
+# [[r2_buckets]]
+# binding = "FILES"
+# bucket_name = "saturday-files"
+
+[triggers]
+crons = ["*/30 * * * *"]   # periodic health sweep, staggered and budgeted
+
+[vars]
+# Add every origin that will call this API: the chat frontend and the admin panel,
+# whichever domains you deploy them to (Cloudflare Pages gives you one per project,
+# or serve them from paths on the same domain and list it once).
+ALLOWED_ORIGINS = "https://saturday.pages.dev,https://saturday-admin.pages.dev,http://localhost:5173"
+HEALTH_TTL_SECONDS = "900"
+HEALTH_PROBE_BUDGET = "12"
+
+# Secrets — set with `wrangler secret put <NAME>`, never in this file:
+#   NVIDIA_NIM_API_KEY
+#   OPENROUTER_API_KEY
+#   CLOUDFLARE_API_KEY
+#   CLOUDFLARE_ACCOUNT_ID
+#   ADMIN_TOKEN_SECRET     a long random string; signs admin bearer tokens
+#   ADMIN_PASSWORD         the password the admin panel's login screen checks
