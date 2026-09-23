@@ -945,12 +945,11 @@ kbd {
 
    apiBase:
      ''              — no backend. Runs on the Claude.ai runtime only
-                        (the default; this is how the file works with
-                        zero setup as a Claude artifact).
-     'same-origin'   — the frontend and the Saturday API are served
-                        from the same domain (e.g. a Cloudflare Pages
-                        `_redirects` rule proxying /api/* to your
-                        Worker). No CORS setup needed.
+                        (this is how the file works with zero setup as a
+                        Claude artifact).
+     'same-origin'   — the frontend and the Saturday API are served by the
+                        same Worker (this repo's default deployment: Workers
+                        Static Assets). No CORS setup needed.
      'https://…'     — the Saturday API's own URL, when it's hosted
                         on a different domain than this file.
 
@@ -958,7 +957,7 @@ kbd {
    Settings → AI & models — that always wins over what's set here.
    ============================================================ */
 window.SATURDAY_CONFIG = {
-  apiBase: '',
+  apiBase: 'same-origin',
 };
 /* ============================================================
    SATURDAY — core: utils, storage, state
@@ -1107,8 +1106,11 @@ const State = {
     this.persist(c);
   },
   remove(id) {
+    const conv = this.conversations.find((c) => c.id === id);
     this.conversations = this.conversations.filter((c) => c.id !== id);
-    Store.dropConv(id); this.persistLocal();
+    Store.dropConv(id);
+    if (typeof Remote !== 'undefined' && conv) Remote.syncDrop(conv);
+    this.persistLocal();
     if (this.activeId === id) this.activeId = this.conversations.find((c) => !c.archived)?.id || null;
   },
 };
@@ -1426,7 +1428,11 @@ const Remote = {
 
   errorFromCode(code, message) {
     const known = ['rate_limited', 'upstream_error', 'no_model', 'auth_failed', 'interrupted'];
-    return { code: known.includes(code) ? (code === 'auth_failed' ? 'session_expired' : code === 'interrupted' ? 'upstream_error' : code) : 'upstream_error', message };
+    // auth_failed from the backend means the OPERATOR's provider key was rejected —
+    // not that the visitor must sign in — so it must not render the runtime's
+    // "sign in again" copy.
+    const mapped = code === 'auth_failed' || code === 'interrupted' ? 'upstream_error' : code;
+    return { code: known.includes(code) ? mapped : 'upstream_error', message };
   },
 
   /** Same {text,truncated} contract as the runtime's sample() function, so Chat.stream
@@ -1466,17 +1472,69 @@ const Remote = {
           if (!ev || !dataLine) continue;
           let data; try { data = JSON.parse(dataLine); } catch { continue; }
           if (ev === 'delta') { whole += data.delta; opts.onText?.({ text: whole, delta: data.delta }); }
+          else if (ev === 'routing') { opts.onRouting?.(data); }
+          else if (ev === 'done') { opts.onDone?.(data); }
           else if (ev === 'error') {
             const err = new Error(data.message || 'upstream error');
             if (whole) err.text = whole;
             Object.assign(err, this.errorFromCode(data.code, data.message));
             throw err;
           }
-          // 'routing' and 'done' frames are informational; the frontend already knows the model it asked for.
         }
       }
       return { text: whole, truncated: false };
     };
+  },
+
+  /* ---- server-side history mirror ----
+     When a backend is configured, conversations are mirrored there under this
+     device's id, so the admin panel's Users/Conversations views reflect reality.
+     Strictly fire-and-forget: a sync failure never blocks or alters the local,
+     always-available copy of the history. */
+  syncEnabled() { return this.isConfigured() && State.settings.saveHistory; },
+
+  async syncEnsure(conv) {
+    if (conv.remoteId || !this.syncEnabled()) return conv.remoteId || null;
+    try {
+      const r = await fetch(this.base() + '/api/conversations', {
+        method: 'POST', headers: this.headers(),
+        body: JSON.stringify({ title: conv.title, modelId: conv.modelId || null }),
+      });
+      if (!r.ok) return null;
+      const { id } = await r.json();
+      conv.remoteId = id || null;
+      if (conv.remoteId) State.persistLocal();
+      return conv.remoteId;
+    } catch { return null; }
+  },
+
+  /** Upserts by client-side message id on the server, so retries and
+      regenerate runs converge instead of duplicating rows. */
+  async syncMessages(conv, msgs) {
+    if (!conv.remoteId || !this.syncEnabled()) return;
+    const payload = msgs.filter(Boolean)
+      .map((m) => ({ id: m.id, role: m.role, content: m.content || '', routing: m.routing || undefined, createdAt: m.createdAt }))
+      .filter((m) => m.content);
+    if (!payload.length) return;
+    try {
+      await fetch(this.base() + `/api/conversations/${conv.remoteId}/messages`, {
+        method: 'POST', headers: this.headers(), body: JSON.stringify({ messages: payload }),
+      });
+    } catch { /* the local copy stands; the next message re-pushes these */ }
+  },
+
+  async syncPatch(conv, patch) {
+    if (!conv.remoteId || !this.syncEnabled()) return;
+    try {
+      await fetch(this.base() + `/api/conversations/${conv.remoteId}`, {
+        method: 'PATCH', headers: this.headers(), body: JSON.stringify(patch),
+      });
+    } catch { /* cosmetic drift at worst */ }
+  },
+
+  syncDrop(conv) {
+    if (!conv?.remoteId || !this.syncEnabled()) return;
+    fetch(this.base() + `/api/conversations/${conv.remoteId}`, { method: 'DELETE', headers: this.headers() }).catch(() => {});
   },
 };
 
@@ -1630,7 +1688,9 @@ const Registry = {
         for (const m of byProvider[id]) {
           Health.set(m.id, {
             status: m.remoteStatus === 'unavailable' ? 'unavailable' : m.remoteStatus,
-            latencyMs: m.remoteLatency, note: m.remoteStatus === 'unavailable' ? 'Reported unavailable by the backend' : '',
+            // don't clobber a locally measured latency when the backend has none
+            ...(m.remoteLatency != null ? { latencyMs: m.remoteLatency } : {}),
+            note: m.remoteStatus === 'unavailable' ? 'Reported unavailable by the backend' : '',
           });
         }
       }
@@ -1655,7 +1715,9 @@ const Registry = {
   byId(id) { return this.models.find((m) => m.id === id) || null; },
   routerById(id) { return ROUTERS.find((r) => r.id === id) || null; },
   entry(id) { return this.routerById(id) || this.byId(id); },
-  available() { return this.models.filter((m) => Health.eligible(m.id) && Health.get(m.id).status !== 'unknown'); },
+  /* The set the router may pick from — same rule as eligible(): anything not
+     explicitly broken or cooling down counts, including not-yet-probed models. */
+  available() { return this.models.filter((m) => Health.eligible(m.id)); },
   eligible(req) {
     return this.models.filter((m) => {
       if (!Health.eligible(m.id)) return false;
@@ -1844,6 +1906,9 @@ const Chat = {
       const result = await this.stream(conv, assistant, model, attachments, history);
       if (result.ok) {
         State.touch(conv);
+        // Mirror the finished exchange to the Saturday API, if one is configured.
+        const uMsg = [...conv.messages].reverse().find((m) => m.role === 'user' && m.createdAt <= assistant.createdAt);
+        Remote.syncEnsure(conv).then((rid) => rid && Remote.syncMessages(conv, [uMsg, assistant]));
         return;
       }
       const code = result.code || 'upstream_error';
@@ -1874,6 +1939,7 @@ const Chat = {
     const t0 = performance.now();
     let firstToken = 0;
     let paint = null, lastPaint = 0;
+    let routedModelId = model.id;   // the backend may fall back mid-stream; track who actually answers
 
     const opts = {
       modelTier: model.tier, modelId: model.id, cache: false, signal: ctl.signal,
@@ -1887,6 +1953,23 @@ const Chat = {
         if (!paint && performance.now() - lastPaint > 90) {
           paint = requestAnimationFrame(() => { paint = null; lastPaint = performance.now(); UI.updateMessage(assistant); });
         }
+      },
+      onRouting: (r) => {
+        // The backend fell back to a different model. The badge must show the model
+        // that is actually answering — not the one that was requested and failed.
+        if (!r || !r.modelId || r.modelId === model.id) return;
+        routedModelId = r.modelId;
+        const actual = Registry.byId(r.modelId);
+        assistant.routing = {
+          ...(assistant.routing || {}),
+          modelId: r.modelId,
+          modelName: actual?.displayName || r.modelId.split(':').pop(),
+          provider: Providers[r.provider]?.name || r.provider,
+          reason: r.reason || `Fell back after ${r.fallbackFrom || model.id} failed`,
+          fallbackFrom: r.fallbackFrom || assistant.routing?.fallbackFrom || null,
+        };
+        UI.toast(`${Registry.label(r.fallbackFrom || model.id)} failed — retrying on ${assistant.routing.modelName}`, 'info');
+        UI.updateMessage(assistant);
       },
     };
     if (imageBlobs.length) {
@@ -1902,7 +1985,14 @@ const Chat = {
       assistant.state = 'done';
       assistant.error = null;
       assistant.latencyMs = Math.round(firstToken || performance.now() - t0);
-      Health.success(model.id, assistant.latencyMs);
+      if (routedModelId !== model.id) {
+        // The requested model failed upstream and the backend fell back: record both
+        // truths locally, so this client's own router avoids the broken one next time.
+        Health.failure(model.id, 'upstream_error');
+        Health.success(routedModelId, assistant.latencyMs);
+      } else {
+        Health.success(model.id, assistant.latencyMs);
+      }
       UI.updateMessage(assistant);
       return { ok: true };
     } catch (e) {
@@ -2376,6 +2466,12 @@ Object.assign(UI, {
     }
     $('#searchQ', el).addEventListener('input', debounce((e) => this.paintSearch(e.target.value), 110));
     el.addEventListener('click', (e) => {
+      const again = e.target.closest('[data-research]');
+      if (again) {
+        $('#searchQ', el).value = again.dataset.research;
+        this.paintSearch(again.dataset.research);
+        return;
+      }
       const r = e.target.closest('[data-goto]');
       if (!r) return;
       this.closePop();
@@ -2390,7 +2486,7 @@ Object.assign(UI, {
       const recent = State.conversations.filter((c) => !c.archived).slice(0, 8);
       box.innerHTML = (State.recentSearches.length
         ? `<div class="pop-group">Recent searches</div>` + State.recentSearches.slice(0, 4).map((s) =>
-            `<button class="res" data-goto="" onclick="return false"><span class="rt">${esc(s)}</span></button>`).join('')
+            `<button class="res" data-research="${esc(s)}"><span class="rt">${esc(s)}</span></button>`).join('')
         : '') +
         `<div class="pop-group">Recent conversations</div>` +
         (recent.map((c) => `<button class="res" data-goto="${c.id}"><span class="rt">${esc(c.title)}</span><span class="rs">${esc((c.messages.at(-1)?.content || '').slice(0, 120))}</span></button>`).join('')
@@ -2503,7 +2599,7 @@ Object.assign(UI, {
           <div class="field"><div class="lab"><b>Saturday API base URL</b>
             <span>Optional. Point this at your deployed Cloudflare Worker to route through your own NVIDIA NIM, Cloudflare AI and OpenRouter keys.${isSiteDefault ? ' This site already has one configured — leave blank to use it, or set your own to override it just for you.' : ' Leave blank to use only the built-in runtime.'}</span></div></div>
           <div style="display:flex;gap:8px;align-items:center;margin:2px 0 14px">
-            <input id="apiBaseInput" class="field-input" placeholder="${isSiteDefault ? esc(effective) : 'https://saturday-api.your-subdomain.workers.dev'}" value="${esc(apiBaseOwn)}" style="flex:1;min-width:0">
+            <input id="apiBaseInput" class="field-input" placeholder="${isSiteDefault ? esc(effective) : 'https://saturday.your-subdomain.workers.dev'}" value="${esc(apiBaseOwn)}" style="flex:1;min-width:0">
             <button class="btn" data-save-api-base>Save</button>
           </div>
           ${effective ? `<div class="field"><div class="lab"><b>Connection</b><span>${esc(effective === 'same-origin' ? 'this site (same origin)' : effective)}${isSiteDefault ? ' · site default' : ' · your override'}</span></div>
@@ -2566,7 +2662,7 @@ Object.assign(UI, {
       }
       if (e.target.closest('[data-wipe]')) {
         if (!confirm('Delete every conversation on this device? This cannot be undone.')) return;
-        State.conversations.forEach((c) => Store.dropConv(c.id));
+        State.conversations.forEach((c) => { Store.dropConv(c.id); Remote.syncDrop(c); });
         State.conversations = []; State.activeId = null; State.persistLocal();
         this.renderRail(); this.renderThread(); this.paintSettings();
         toast('All conversations deleted', 'ok');
@@ -2687,8 +2783,8 @@ const App = {
     const c = State.conversations.find((x) => x.id === id); if (!c) return;
     UI.menu(anchor, [
       { act: 'rename', icon: 'edit', label: 'Rename', run: () => this.renameInline(id) },
-      { act: 'pin', icon: 'pin', label: c.pinned ? 'Unpin' : 'Pin', run: () => { c.pinned = !c.pinned; State.persist(c); UI.renderRail(); } },
-      { act: 'archive', icon: 'archive', label: c.archived ? 'Unarchive' : 'Archive', run: () => { c.archived = !c.archived; State.persist(c); if (State.activeId === id && c.archived) this.newChat(); UI.renderRail(); } },
+      { act: 'pin', icon: 'pin', label: c.pinned ? 'Unpin' : 'Pin', run: () => { c.pinned = !c.pinned; State.persist(c); Remote.syncPatch(c, { pinned: c.pinned ? 1 : 0 }); UI.renderRail(); } },
+      { act: 'archive', icon: 'archive', label: c.archived ? 'Unarchive' : 'Archive', run: () => { c.archived = !c.archived; State.persist(c); Remote.syncPatch(c, { archived: c.archived ? 1 : 0 }); if (State.activeId === id && c.archived) this.newChat(); UI.renderRail(); } },
       { act: 'share', icon: 'share', label: 'Copy as text', run: () => this.exportConv(c) },
       '-',
       { act: 'delete', icon: 'trash', label: 'Delete', danger: true, run: () => {
@@ -2704,7 +2800,11 @@ const App = {
     const input = document.createElement('input');
     input.value = c.title; title.replaceWith(input); input.focus(); input.select();
     const commit = (save) => {
-      if (save && input.value.trim()) { c.title = input.value.trim().slice(0, 80); State.persist(c); }
+      if (save && input.value.trim()) {
+        c.title = input.value.trim().slice(0, 80);
+        State.persist(c);
+        Remote.syncPatch(c, { title: c.title });
+      }
       UI.renderRail(); UI.setTitle();
     };
     input.onblur = () => commit(true);
@@ -2741,10 +2841,15 @@ const App = {
 
   async addFiles(files) {
     const limits = Providers['saturday-runtime'].limits;
+    // Images work when either runtime supports them, or when a Saturday API is
+    // configured (the backend receives them as data URLs — hence the 4 MB cap,
+    // with a matching total limit enforced server-side).
+    const imagesOk = !!limits?.images || Remote.isConfigured();
     for (const f of [...files].slice(0, 8)) {
       if (State.attachments.length >= 8) { toast('Up to 8 attachments per message', 'error'); break; }
       const isImage = /^image\//.test(f.type);
-      if (isImage && !limits?.images) { toast('Images are not supported in this view', 'error'); continue; }
+      if (isImage && !imagesOk) { toast('Images are not supported in this view', 'error'); continue; }
+      if (isImage && f.size > 4 * 1024 * 1024) { toast(`${f.name} is too large — images are limited to 4 MB`, 'error'); continue; }
       if (isImage && limits?.images && f.size > limits.images.maxInputBytes) { toast(`${f.name} is too large`, 'error'); continue; }
       const a = { id: uid('a'), name: f.name || 'pasted-image.png', size: f.size, kind: isImage ? 'image' : TEXTUAL.test(f.name) ? 'code' : 'file', blob: f, status: 'ready' };
       if (isImage) a.url = URL.createObjectURL(f);

@@ -39,7 +39,9 @@ cap, are configurable from **Admin → Rate limits** with no redeploy.
 ## Other abuse protections
 
 - **Message length cap** (`maxMessageChars`, default 8,000) — rejected with `413` before
-  reaching any provider.
+  reaching any provider. Inline images travel as data URLs separately from that character
+  budget and have their own hard limit (8 MB of decoded image data per request), so an
+  oversized image can't smuggle past the text cap.
 - **Login rate limiting** — `/api/admin/login` has its own, tighter limit independent of
   everything else, to resist password guessing.
 - **CORS** — `ALLOWED_ORIGINS` in `wrangler.toml` is an allowlist; requests from anywhere else

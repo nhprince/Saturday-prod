@@ -486,7 +486,7 @@ kbd { font-family: var(--mono); font-size: 10px; color: var(--ink-3); border: 1p
     <form id="loginForm">
       <div class="login-field">
         <label for="apiBaseField">Saturday API base URL</label>
-        <input id="apiBaseField" placeholder="https://saturday-api.your-subdomain.workers.dev" autocomplete="url" required>
+        <input id="apiBaseField" placeholder="https://saturday.your-subdomain.workers.dev" autocomplete="url" required>
       </div>
       <div class="login-field">
         <label for="passwordField">Admin password</label>
@@ -1604,8 +1604,10 @@ window.App = {
 
   async start() {
     this.bind();
-    // remember the last-used base so the login form isn't blank on return visits
-    $('#apiBaseField').value = Auth.base();
+    // Prefill the base URL: the remembered one from a previous session wins;
+    // served same-origin by the Worker, this page's own origin is the right default.
+    $('#apiBaseField').value = Auth.base()
+      || (location.protocol.startsWith('http') ? location.origin : '');
     if (Auth.isValid()) { try { await this.enterShell(); } catch { Auth.logout(); this.toLogin(); } }
   },
 };

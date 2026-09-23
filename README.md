@@ -6,23 +6,27 @@ production-grade backend behind it. This is the complete, ready-to-run project.
 ```
 saturday/
 ├── docs/                    detailed documentation — start with docs/OVERVIEW.md
-├── frontend/index.html      the chat app — one self-contained file, no build step
-├── admin/index.html         the admin panel — one self-contained file, no build step
-└── api/                     Cloudflare Worker — providers, routing, health, rate limiting, admin API
+└── api/                     one Cloudflare Worker = the whole product
+    ├── public/index.html        the chat app at / — one self-contained file, no build step
+    ├── public/admin/index.html  the admin panel at /admin/ — also one file, no build step
+    └── src/                     the API at /api/* — providers, routing, health, rate limiting
 ```
 
-**New here?** → `docs/DEPLOYMENT.md` gets you live on Cloudflare's free tier in about 20 minutes.
+**New here?** → `docs/DEPLOYMENT.md` gets you live on Cloudflare's free tier in about 15 minutes —
+one Worker, one Git-connected deploy, and **no card required** (KV and D1 are free-plan products;
+only R2 would need a payment method, and Saturday doesn't use it).
 **Want the full picture first?** → `docs/OVERVIEW.md`.
 
-## Two ways to run the frontend
+## Two ways to run the chat app
 
-**1. Zero setup, inside Claude.** Open `frontend/index.html` as a Claude.ai artifact and it
-runs immediately — Free Router and Smart Router use Claude itself as the model, through the
-artifact's built-in `sample` capability. No deploy, no keys, no backend.
+**1. Zero setup, inside Claude.** Open a copy of `api/public/index.html` as a Claude.ai artifact
+and it runs immediately — Free Router and Smart Router use Claude itself as the model, through
+the artifact's built-in `sample` capability. No deploy, no keys, no backend.
 
-**2. Self-hosted, with your own provider keys, fully public.** Deploy `api/` (see
-`docs/DEPLOYMENT.md`), then the same `frontend/index.html` — opened anywhere, as a static file
-or on Cloudflare Pages — discovers NVIDIA NIM, Cloudflare AI, OpenRouter, and any custom
+**2. Self-hosted, with your own provider keys, fully public.** Deploy to Cloudflare (see
+`docs/DEPLOYMENT.md`) and a single Worker serves the chat app at `/`, the admin panel at
+`/admin/`, and the API at `/api/*` — same origin, so there is no CORS to configure and no Pages
+project to babysit. The app discovers NVIDIA NIM, Cloudflare AI, OpenRouter, and any custom
 providers you've added, and routes between them automatically. This path is built to run
 publicly with no login wall: see `docs/SECURITY.md` for the two-layer rate limiting that keeps
 combined visitor traffic from ever exceeding what a free provider key allows.
@@ -45,8 +49,8 @@ Claude.ai-specific except the one capability it tries first.
 - **A live-editable CMS** — brand name, tagline, favicon, logo mark, welcome copy, suggestion
   chips, composer placeholder, an announcement banner — all editable from the admin panel and
   applied to every visitor's next page load, no redeploy.
-- **Zero-cost infrastructure** — Cloudflare Pages + Workers + KV + D1, sized to run comfortably
-  inside the free tier (see the limits table in `docs/DEPLOYMENT.md`).
+- **Zero-cost infrastructure** — one Cloudflare Worker (serving the static apps too) plus KV + D1,
+  sized to run comfortably inside the free tier (see the limits table in `docs/DEPLOYMENT.md`).
 
 ## Documentation
 

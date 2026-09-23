@@ -51,6 +51,7 @@ async function touchUser(env: Env, userId: string) {
 async function conversations(req: Request, env: Env, url: URL): Promise<Response> {
   const userId = req.headers.get('x-saturday-user') ?? 'local';
   const id = url.pathname.split('/')[3];
+  const sub = url.pathname.split('/')[4];
 
   if (req.method === 'GET' && !id) {
     const { results } = await env.DB.prepare(
@@ -79,7 +80,7 @@ async function conversations(req: Request, env: Env, url: URL): Promise<Response
     return json({ id: newId }, { status: 201 });
   }
 
-  if (req.method === 'PATCH' && id) {
+  if (req.method === 'PATCH' && id && !sub) {
     const body = (await req.json()) as Record<string, unknown>;
     const allowed = ['title', 'pinned', 'archived', 'model_id'] as const;
     const sets = allowed.filter((k) => k in body);
@@ -90,10 +91,41 @@ async function conversations(req: Request, env: Env, url: URL): Promise<Response
     return json({ ok: true });
   }
 
-  if (req.method === 'DELETE' && id) {
+  /* Append messages to an owned conversation. Upserts by client-provided id so
+     retries and regenerate calls converge instead of duplicating rows. */
+  if (req.method === 'POST' && id && sub === 'messages') {
+    const conv = await env.DB.prepare('SELECT user_id FROM conversations WHERE id = ?1').bind(id).first<{ user_id: string }>();
+    if (!conv || conv.user_id !== userId) return json({ error: 'not_found' }, { status: 404 });
+    const body = (await req.json().catch(() => ({}))) as {
+      messages?: Array<{ id?: string; role?: string; content?: string; routing?: unknown; createdAt?: number }>;
+    };
+    const msgs = (Array.isArray(body.messages) ? body.messages : []).slice(0, 50)
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length > 0);
+    if (!msgs.length) return json({ error: 'bad_request', message: 'messages must contain at least one { role, content } entry' }, { status: 400 });
+    const now = Date.now();
+    const stmts = msgs.map((m) => env.DB.prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, routing, created_at) VALUES (?1,?2,?3,?4,?5,?6)
+       ON CONFLICT(id) DO UPDATE SET content = excluded.content, routing = excluded.routing`,
+    ).bind(
+      m.id ?? crypto.randomUUID(), id, m.role!,
+      m.content!.slice(0, 100_000),
+      m.routing !== undefined ? JSON.stringify(m.routing).slice(0, 4000) : null,
+      m.createdAt ?? now,
+    ));
+    stmts.push(env.DB.prepare('UPDATE conversations SET updated_at = ?1 WHERE id = ?2').bind(now, id));
+    await env.DB.batch(stmts);
+    await touchUser(env, userId);
+    return json({ ok: true, count: msgs.length }, { status: 201 });
+  }
+
+  if (req.method === 'DELETE' && id && !sub) {
+    // Ownership gate comes first: messages must never be deleted for a
+    // conversation the caller does not own.
+    const conv = await env.DB.prepare('SELECT user_id FROM conversations WHERE id = ?1').bind(id).first<{ user_id: string }>();
+    if (!conv || conv.user_id !== userId) return json({ error: 'not_found' }, { status: 404 });
     await env.DB.batch([
       env.DB.prepare('DELETE FROM messages WHERE conversation_id = ?1').bind(id),
-      env.DB.prepare('DELETE FROM conversations WHERE id = ?1 AND user_id = ?2').bind(id, userId),
+      env.DB.prepare('DELETE FROM conversations WHERE id = ?1').bind(id),
     ]);
     return json({ ok: true });
   }

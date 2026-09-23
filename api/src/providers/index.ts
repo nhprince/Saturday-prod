@@ -244,6 +244,19 @@ export class CustomProvider extends OpenAICompatible {
 }
 
 /* ---------------- Cloudflare Workers AI ---------------- */
+/** Well-known Workers AI text models, used only when the REST catalogue isn't
+ *  available (a binding-only deployment without CLOUDFLARE_API_KEY). The health
+ *  system probes each one, so a stale entry simply never shows as available. */
+const WORKERS_AI_FALLBACK = [
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/meta/llama-3.1-8b-instruct',
+  '@cf/meta/llama-3.2-3b-instruct',
+  '@cf/meta/llama-3.2-1b-instruct',
+  '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
+  '@cf/mistral/mistral-7b-instruct-v0.1',
+  '@cf/qwen/qwen1.5-14b-chat-awq',
+];
+
 export class CloudflareProvider implements AIProvider {
   readonly id = 'cloudflare';
   readonly name = 'Cloudflare AI';
@@ -251,8 +264,29 @@ export class CloudflareProvider implements AIProvider {
 
   isConfigured() { return !!(this.env.AI || (this.env.CLOUDFLARE_API_KEY && this.env.CLOUDFLARE_ACCOUNT_ID)); }
 
+  private toModel(providerModelId: string, raw: Record<string, unknown>, contextWindow?: number): AIModel {
+    return {
+      id: `cloudflare:${providerModelId}`,
+      providerModelId,
+      provider: this.id,
+      displayName: prettify(providerModelId),
+      family: providerModelId.split('/')[2],
+      contextWindow,
+      capabilities: inferCapabilities(providerModelId, raw),
+      free: true,
+      tier: inferTier(providerModelId),
+      status: 'unknown',
+      raw,
+    };
+  }
+
   async listModels(): Promise<AIModel[]> {
-    if (!this.env.CLOUDFLARE_API_KEY || !this.env.CLOUDFLARE_ACCOUNT_ID) return [];
+    if (!this.env.CLOUDFLARE_API_KEY || !this.env.CLOUDFLARE_ACCOUNT_ID) {
+      // Binding-only deploy: there is no catalogue API to list, so expose a small
+      // static set instead of nothing — health checks decide what actually runs.
+      if (!this.env.AI) return [];
+      return WORKERS_AI_FALLBACK.map((id) => this.toModel(id, { staticCatalogue: true }));
+    }
     const url = `https://api.cloudflare.com/client/v4/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/ai/models/search?per_page=200&task=Text%20Generation`;
     const res = await fetch(url, { headers: { authorization: `Bearer ${this.env.CLOUDFLARE_API_KEY}` } });
     if (!res.ok) throw new ProviderError(stateFromStatus(res.status), `Workers AI catalogue failed (${res.status})`, res.status);
@@ -261,19 +295,7 @@ export class CloudflareProvider implements AIProvider {
       const providerModelId = String((raw as any).name);
       const props = ((raw as any).properties ?? []) as Array<{ property_id: string; value: string }>;
       const ctx = Number(props.find((p) => p.property_id === 'context_window')?.value);
-      return {
-        id: `cloudflare:${providerModelId}`,
-        providerModelId,
-        provider: this.id,
-        displayName: prettify(providerModelId),
-        family: providerModelId.split('/')[2],
-        contextWindow: Number.isFinite(ctx) ? ctx : undefined,
-        capabilities: inferCapabilities(providerModelId, raw),
-        free: true,
-        tier: inferTier(providerModelId),
-        status: 'unknown',
-        raw,
-      } satisfies AIModel;
+      return this.toModel(providerModelId, raw, Number.isFinite(ctx) ? ctx : undefined);
     });
   }
 

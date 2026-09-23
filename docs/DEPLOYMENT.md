@@ -1,253 +1,170 @@
-# Deploying Saturday for free on Cloudflare
+# Deploying Saturday on Cloudflare — one Worker, everything included
 
-This walks through a complete production deployment — chat app, admin panel, and API —
-entirely on Cloudflare's free tier: Pages, Workers, KV, and D1 all have free allocations big
-enough to run Saturday for a genuinely public site. Nothing here requires a credit card beyond
-what Cloudflare itself asks for account verification.
+Saturday deploys as **one Cloudflare Worker**: the same deployment serves the chat
+app (`/`), the admin panel (`/admin/`), and the API (`/api/*`), using Workers
+Static Assets. One `wrangler.toml`, one Git-connected build, no CORS to configure,
+and the cron health sweep keeps working because it's still a real Worker.
 
-Total time: about 20 minutes the first time.
+> **Cost: $0, and no card required.** Workers, KV, D1, Workers AI, cron triggers and
+> static assets are all on Cloudflare's free plan without a payment method. The one
+> Cloudflare product that does ask for a card — R2 object storage — is not used by
+> Saturday. (`wrangler.toml` has a commented-out R2 block reserved for a future
+> attachment feature; leaving it commented costs nothing.)
+
+Total time: about 15 minutes.
 
 ## What you'll end up with
 
 ```
-https://saturday.pages.dev            ← the chat app (or your own domain)
-https://saturday.pages.dev/admin/     ← the admin panel
-https://saturday-api.<you>.workers.dev ← the API, called by both of the above
+https://saturday.<your-subdomain>.workers.dev         ← the chat app
+https://saturday.<your-subdomain>.workers.dev/admin/  ← the admin panel
+https://saturday.<your-subdomain>.workers.dev/api/*   ← the API (same origin)
 ```
 
-Two deployment shapes are covered below. Pick one:
+## The moving parts behind one deployment
 
-- **A — Same-origin (recommended).** Frontend and admin panel deployed together as one
-  Cloudflare Pages project, with a `_redirects` rule that proxies `/api/*` to your Worker.
-  Visitors never see a different domain, there's no CORS to configure, and nobody has to type
-  an API URL into Settings — it just works.
-- **B — Separate domains.** The API on its own Workers subdomain, the frontend/admin on Pages.
-  A little more setup (CORS, one config line), but useful if you want the API reachable from
-  somewhere else too.
+`api/wrangler.toml` declares the whole thing:
 
-Both shapes use the exact same Worker and the exact same frontend files — the only difference
-is one file (`_redirects`) and one line of frontend config.
+```toml
+[assets]
+directory = "./public"          # public/index.html (chat) + public/admin/index.html (admin)
+binding = "ASSETS"
+run_worker_first = ["/api/*"]   # /api/* always executes the Worker
+```
+
+Cloudflare answers `/` and `/admin/` straight from its static-asset layer and only
+invokes your Worker code for `/api/*`. A useful side effect: **page loads are free
+and don't count against your daily Worker request quota** — only API calls do.
 
 ---
 
-## 1. Install Wrangler and sign in
+## 1. Create the storage resources (dashboard, no CLI needed)
 
-```bash
-npm install -g wrangler
-wrangler login
-```
+In the Cloudflare dashboard:
 
-This opens a browser window to authorize Wrangler against your Cloudflare account (free is
-fine — no plan upgrade needed for anything in this guide).
+1. **Workers & Pages → KV → Create namespace** → name it `REGISTRY` → copy the
+   **Namespace ID** it shows.
+2. **Storage & Databases → D1 SQL Database → Create** → name it `saturday` → copy
+   the **Database ID**.
 
-## 2. Deploy the API (Cloudflare Workers)
-
-```bash
-cd api
-npm install
-```
-
-Create the two storage resources the Worker needs:
-
-```bash
-npx wrangler kv namespace create REGISTRY
-```
-
-Copy the `id` it prints into `wrangler.toml`, replacing `replace-with-your-kv-id`:
+Edit `api/wrangler.toml` and paste both IDs in place of the placeholders:
 
 ```toml
 [[kv_namespaces]]
 binding = "REGISTRY"
-id = "the-id-you-just-got"
-```
+id = "the-kv-namespace-id"
 
-```bash
-npx wrangler d1 create saturday
-```
-
-Copy that `database_id` into `wrangler.toml` too:
-
-```toml
 [[d1_databases]]
 binding = "DB"
 database_name = "saturday"
-database_id = "the-id-you-just-got"
+database_id = "the-d1-database-id"
 ```
 
-Load the schema:
+Commit and push (or edit directly on GitHub — the web editor is fine).
 
-```bash
-npx wrangler d1 execute saturday --file=schema.sql --remote
-```
+## 2. Load the database schema
 
-Set your secrets. You only need the ones for providers you actually want — a provider with no
-key simply never appears, anywhere, to anyone:
+Dashboard → **Storage & Databases** → **D1** → open `saturday` → **Console** tab →
+paste the full contents of `api/schema.sql` → **Execute**.
 
-```bash
-npx wrangler secret put NVIDIA_NIM_API_KEY      # free tier at build.nvidia.com
-npx wrangler secret put OPENROUTER_API_KEY      # free models at openrouter.ai
-npx wrangler secret put CLOUDFLARE_API_KEY      # optional if you'd rather use the AI binding below
-npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
-npx wrangler secret put ADMIN_TOKEN_SECRET      # any long random string, e.g. `openssl rand -hex 32`
-npx wrangler secret put ADMIN_PASSWORD          # the password the admin panel's login screen checks
-```
+Every statement is `IF NOT EXISTS`, so re-running it after an update is always safe.
 
-Cloudflare AI (Workers AI) can skip its own API key entirely — `wrangler.toml` already binds it
-natively:
+## 3. Connect the repo — this is the whole deployment
 
-```toml
-[ai]
-binding = "AI"
-```
+**Workers & Pages → Create application → Import a repository**, pick your git
+provider, select the repository, then configure:
 
-with that binding present, `CLOUDFLARE_API_KEY`/`CLOUDFLARE_ACCOUNT_ID` are optional.
+| Setting | Value |
+|---|---|
+| Name | `saturday` (must match `name` in `api/wrangler.toml`) |
+| Root directory | `api` |
+| Build command | *(leave empty)* |
+| Deploy command | `npx wrangler deploy` (the default) |
+| Production branch | `main` |
 
-Now deploy:
+**Save and Deploy.** That one build uploads the Worker code *and* the two static
+HTML files in `api/public/`, wires the KV/D1/AI bindings and the cron trigger, and
+gives you the URL above. From now on, **every push to `main` redeploys everything**.
 
-```bash
-npm run deploy
-```
+## 4. Set the secrets
 
-Wrangler prints your Worker's URL — something like `https://saturday-api.your-name.workers.dev`.
-Keep that; you'll need it in a moment.
+Dashboard → your Worker → **Settings → Variables and Secrets → Add** (type
+**Secret**):
 
-Verify it's alive:
+| Secret | Required? | What it's for |
+|---|---|---|
+| `ADMIN_TOKEN_SECRET` | Yes | Signs admin sessions — any long random string |
+| `ADMIN_PASSWORD` | Yes | The admin panel's login password |
+| `NVIDIA_NIM_API_KEY` | Recommended | Free tier at build.nvidia.com |
+| `OPENROUTER_API_KEY` | Optional | Free models at openrouter.ai |
+| `CLOUDFLARE_API_KEY` / `CLOUDFLARE_ACCOUNT_ID` | Optional | Without them, the Cloudflare AI provider still works — the `[ai]` binding generates against a small built-in model list. With them, it discovers your account's full Workers AI catalogue instead. |
 
-```bash
-curl https://saturday-api.your-name.workers.dev/api/health
-# {"ok":true,"ts":...}
-```
+A provider with no key and no binding simply never appears — anywhere — by design.
 
-## 3. Set `ALLOWED_ORIGINS`
+## 5. Verify
 
-Open `api/wrangler.toml` and set this to wherever you're about to deploy the frontend (you can
-guess the Pages URL before creating the project — it's `https://<project-name>.pages.dev` — or
-come back and fix this after step 4):
+- `https://saturday.<sub>.workers.dev/api/health` → `{"ok":true,"ts":…}`
+- `https://saturday.<sub>.workers.dev/` → the chat app loads; **Settings → AI &
+  models → Connection** shows a green dot; providers appear (whichever you keyed).
+- Send a chat with **Smart Router** — it should stream, and the badge under the
+  reply shows which model actually answered.
+- `…/admin/` → sign in with your `ADMIN_PASSWORD`. The **API base URL** field is
+  pre-filled with the site's own origin when you open the panel from the deployed
+  site. Once in, run **Models → Health-check all** to populate statuses, and
+  consider rotating the password from **System** (stores a PBKDF2 hash in KV; the
+  Worker secret stops mattering from then on).
 
-```toml
-[vars]
-ALLOWED_ORIGINS = "https://saturday.pages.dev,http://localhost:5173"
-```
+> **Fresh deployments warm up while they serve.** Until the first health probes
+> land, every model shows as "unknown". Saturday still routes those early
+> requests between unverified models (the badge says "not yet health-checked")
+> and each attempt feeds the health system, so the first successful reply itself
+> marks a model good. Health-check sweeps are budgeted (12 probes per 15 minutes
+> by default — raise `HEALTH_PROBE_BUDGET` in `wrangler.toml` if you want a large
+> catalogue verified faster), so full coverage of a big catalogue takes a while.
+> Nothing to fix — just know that available-model counts grow as probes land.
 
-Redeploy after changing it: `npm run deploy`.
+## Optional: your own domain
 
-*(Shape A only: if frontend and API end up same-origin via the `_redirects` proxy below, the
-browser never makes a cross-origin request at all, so this matters less — but it's still worth
-setting correctly for shape B or for anyone calling the API directly.)*
-
-## 4. Prepare the frontend
-
-**Shape A (same-origin, recommended):**
-
-```bash
-mkdir -p pages-project
-cp frontend/index.html pages-project/index.html
-mkdir -p pages-project/admin
-cp admin/index.html pages-project/admin/index.html
-```
-
-Create `pages-project/_redirects` with one line (swap in your real Worker URL):
-
-```
-/api/*  https://saturday-api.your-name.workers.dev/api/:splat  200
-```
-
-The `200` status code is what makes Cloudflare Pages treat this as a transparent proxy rather
-than a redirect — the visitor's browser only ever sees your Pages domain.
-
-Nothing else to configure. Because the API is now same-origin, the frontend's default
-`window.SATURDAY_CONFIG.apiBase = ''` combined with the admin panel simply won't reach it —
-so for Shape A, open `pages-project/index.html`, find the config block near the very top of
-the `<script>` tag, and set it to the same-origin sentinel:
-
-```js
-window.SATURDAY_CONFIG = {
-  apiBase: 'same-origin',
-};
-```
-
-That one edit is the only thing you customize before deploying. Every visitor gets it
-automatically — nobody has to configure anything themselves.
-
-**Shape B (separate domains):**
-
-```bash
-mkdir -p pages-project
-cp frontend/index.html pages-project/index.html
-mkdir -p pages-project/admin
-cp admin/index.html pages-project/admin/index.html
-```
-
-Edit the same config block, but with your Worker's real URL instead of the sentinel:
-
-```js
-window.SATURDAY_CONFIG = {
-  apiBase: 'https://saturday-api.your-name.workers.dev',
-};
-```
-
-No `_redirects` file needed for this shape — just make sure `ALLOWED_ORIGINS` (step 3) includes
-your Pages domain.
-
-## 5. Deploy the frontend (Cloudflare Pages)
-
-Via the dashboard: **Workers & Pages → Create → Pages → Upload assets**, and upload the
-`pages-project` folder. Or via Wrangler:
-
-```bash
-npx wrangler pages deploy pages-project --project-name=saturday
-```
-
-Wrangler prints your Pages URL. Open it — the chat app should load immediately, and if you set
-up Shape A or B correctly, Settings → AI & models → "Connection" should show a green dot.
-
-Open `https://<your-pages-url>/admin/` and sign in with the `ADMIN_PASSWORD` you set in step 2.
-From Settings inside the admin panel, consider rotating that password to one stored in the
-database instead of the Worker secret — see `docs/ADMIN.md`.
-
-## 6. (Optional) Put it on your own domain
-
-In the Pages project settings, **Custom domains → Add a domain**, and follow Cloudflare's DNS
-instructions. If you're on Shape B, remember to add the new domain to `ALLOWED_ORIGINS` and
-redeploy the Worker.
-
-## 7. Turn on the cron health sweep
-
-Already configured in `wrangler.toml` (`crons = ["*/30 * * * *"]`) — nothing to do. Cloudflare
-runs it automatically once the Worker is deployed; check **Workers & Pages → your Worker →
-Triggers** to confirm it's listed.
-
----
+Because everything is one Worker, a custom domain is a single **Worker custom
+domain** (Workers & Pages → your Worker → Settings → Domains & Routes). Add
+`chat.example.com` there and both the site and `/api/*` ride along — no second
+mapping, no CORS change.
 
 ## Free-tier limits worth knowing
 
 | Resource | Free allowance | What Saturday uses it for |
 |---|---|---|
-| Workers requests | 100,000/day | Every API call |
-| KV reads/writes | 100,000 reads, 1,000 writes per day | Health cache, rate-limit counters, catalogue cache |
-| D1 rows read/written | 5M reads, 100K writes per day | Conversations, users, admin config |
-| Pages | Unlimited requests, 500 builds/month | The static frontend and admin panel |
+| Worker requests (`/api/*` only) | 100,000/day | Chat, model lists, the admin panel's calls |
+| Static asset requests (`/`, `/admin/`) | free & unlimited | Serving the two HTML apps |
+| KV reads / writes | 100,000 / 1,000 per day | Catalogue cache, health records, rate-limit counters |
+| D1 rows read / written | 5M / 100K per day | Conversations, users, admin config, audit |
+| Workers AI | daily free allocation | The Cloudflare provider's models |
 
-The rate limits in `docs/SECURITY.md` (defaults: 12 chat messages/minute per visitor, provider
-caps like 30/minute for NVIDIA NIM) are set conservatively enough that a genuinely popular free
-deployment stays inside these ceilings; tune them from the admin panel's **Rate limits** screen
-if you have headroom to spare.
+The rate limits in `docs/SECURITY.md` (12 chat messages/min/visitor, provider caps
+like 30/min) are tuned so a genuinely popular free deployment stays inside these
+ceilings; tune them from **Admin → Rate limits** if you have headroom. The tightest
+dial is the 1,000 KV-writes/day counter — at very high traffic that's the first
+ceiling you'll meet, and the fix is Cloudflare's $5 paid plan, not a code change.
 
 ## Updating later
 
-Pulled a change to `api/`? Re-run `npm run deploy` from `api/`. Schema changes are additive and
-idempotent — re-running `wrangler d1 execute saturday --file=schema.sql --remote` after an
-update is always safe. Frontend or admin panel changed? Just re-upload the file(s) to Pages;
-there's no build step.
+Push to `main`. Schema changes stay additive and idempotent — after pulling an
+update that changes `schema.sql`, re-run it in the D1 console. The chat app and
+admin panel are just two files under `api/public/`; editing them on GitHub and
+committing is a full redeploy of everything.
 
 ## Troubleshooting
 
-- **"Couldn't reach that URL" on admin login** — check `ALLOWED_ORIGINS` includes the admin
-  panel's actual origin, and that you typed the Worker URL with `https://` and no trailing slash.
-- **Models never show as available** — open Settings → AI & models → Model health → *Run health
-  check*; if a specific provider stays "unavailable", its Worker secret is likely missing or
-  wrong. Check `GET /api/providers` for `configured: false`.
-- **Admin panel says "admin_not_configured"** — `ADMIN_TOKEN_SECRET` and/or `ADMIN_PASSWORD`
-  weren't set as Worker secrets. Re-run the `wrangler secret put` commands from step 2.
-- **CORS errors in the browser console (Shape B)** — the origin making the request isn't in
-  `ALLOWED_ORIGINS`. Redeploy the Worker after fixing it.
+- **`/` returns JSON `{"error":"not_found"}`** — the assets didn't upload: check
+  that `[assets] directory = "./public"` exists in `api/wrangler.toml` and that the
+  build's **root directory** is `api` (so `./public` resolves to `api/public`).
+- **`Could not resolve '…'` or binding errors on first deploy** — the KV/D1 IDs in
+  `wrangler.toml` are still placeholders or mistyped (Step 1).
+- **Models never show as available** — Admin → Models → *Run health check*; if a
+  provider stays "unavailable", its Worker secret is likely missing or wrong.
+  `GET /api/providers` shows `configured: false` for those.
+- **Admin panel says `admin_not_configured`** — `ADMIN_TOKEN_SECRET` and/or
+  `ADMIN_PASSWORD` weren't set as Worker secrets (Step 4).
+- **The admin login says "Couldn't reach that URL"** — you typed the URL of the
+  *page* instead of the site origin; use exactly `https://saturday.<sub>.workers.dev`
+  (no trailing slash).

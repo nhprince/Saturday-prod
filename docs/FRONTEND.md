@@ -1,7 +1,8 @@
 # The frontend
 
-`frontend/index.html` — one file: inline CSS, inline HTML, inline JavaScript. No build step,
-no bundler, no npm install. Open it in a browser and it runs.
+`api/public/index.html` — one file: inline CSS, inline HTML, inline JavaScript. No build step,
+no bundler, no npm install. The deployed Worker serves it at `/` as a static asset; opened
+standalone (e.g. as a Claude.ai artifact) it still runs.
 
 ## Two runtimes, one file
 
@@ -65,6 +66,11 @@ and `docs/ADMIN.md` for how these are edited.
   default router, automatic fallback, provider list, per-model health with a manual re-check
 - **Privacy** — local history on/off, a "delete everything on this device" button
 - **Account** — a local display name, usage counts
+
+History is stored in the browser either way. When a Saturday API is configured and history
+saving is on, conversations are *also* mirrored to the backend (scoped to this device's id) —
+that's what the admin panel's Users and Conversations screens show. Turning history off, or
+deleting everything, stops and removes the mirrored copy too.
 
 ## What's deliberately not here
 

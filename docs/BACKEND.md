@@ -101,7 +101,15 @@ credentials can change without touching secrets or redeploying.
 
 `users`, `conversations`, `messages` — the product's own data, scoped by a per-device id sent
 as `x-saturday-user` (there's no login for regular visitors; see `docs/SECURITY.md` for what
-this does and doesn't mean for privacy). `provider_config` and `custom_providers` — provider
+this does and doesn't mean for privacy). The chat endpoints stay stateless: persistence happens
+through the conversation CRUD routes (`POST /api/conversations/:id/messages` upserts by
+client-provided message id), which the shipped frontend calls after each finished exchange when
+a backend is configured. `provider_config` and `custom_providers` — provider
 enable/priority/credentials. `routing_rules`, `cms_content`, `feature_flags` — everything the
 admin panel controls. `audit_log` — every admin action. Full schema in `api/schema.sql`, and
 every statement in it is `IF NOT EXISTS`, so re-running it after an update is always safe.
+
+One discovery nuance: the Cloudflare provider lists its catalogue through Cloudflare's REST
+API when `CLOUDFLARE_API_KEY`/`CLOUDFLARE_ACCOUNT_ID` are set; in a binding-only deployment
+(`[ai]` with no REST key) it falls back to a small static list of known Workers AI models and
+lets health checks prove which ones run.

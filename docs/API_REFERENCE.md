@@ -1,8 +1,9 @@
 # API reference
 
-Base URL is wherever you deployed `api/` — e.g. `https://saturday-api.your-name.workers.dev`.
-All bodies and responses are JSON unless noted. Admin routes require
-`Authorization: Bearer <token>` from `POST /api/admin/login`.
+Base URL is wherever you deployed — e.g. `https://saturday.your-name.workers.dev` (the same
+Worker also serves the site at `/` and the panel at `/admin/`). All bodies and responses are
+JSON unless noted. Admin routes require `Authorization: Bearer <token>` from
+`POST /api/admin/login`.
 
 ## Public
 
@@ -47,6 +48,13 @@ Oversized requests return `413` with `{ error: "message_too_long" }`.
 Scoped by the `x-saturday-user` header (a per-device id the frontend generates itself — there's
 no login). `POST` creates `{ title?, modelId? }` → `{ id }`. `PATCH` accepts any of `title`,
 `pinned`, `archived`, `model_id`.
+
+### `POST /api/conversations/:id/messages`
+Appends messages to an owned conversation: `{ messages: [{ id?, role, content, routing?, createdAt? }] }`
+→ `{ ok, count }`. Upserts by message id, so retries and regenerated answers converge instead of
+duplicating rows. `routing` is stored as JSON and surfaces in the admin panel's transcript view.
+The shipped chat app calls this automatically after each exchange when a backend is configured;
+the chat endpoints themselves stay stateless and never read these rows.
 
 ### `GET /api/search?q=`
 `{ results: [{ id, conversation_id, role, snippet, title }] }`, scoped the same way.
@@ -121,6 +129,7 @@ recoverable failure and doesn't mean the session ended.
 ## Using it from your own frontend
 
 `api/client/saturday-client.ts` wraps `/api/chat/stream`'s SSE parsing and the conversation CRUD
-routes into a small typed class — see its file header for a usage example. The shipped
-`frontend/index.html` doesn't use this file (it talks to the API directly to stay a single
-portable HTML file), but it's there if you're building something else against the same backend.
+routes (including `addMessages`) into a small typed class — see its file header for a usage
+example. The shipped `api/public/index.html` doesn't use this file (it talks to the API directly
+to stay a single portable HTML file), but it's there if you're building something else against
+the same backend.

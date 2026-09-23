@@ -3,6 +3,19 @@
    The only thing the frontend imports. It knows about Saturday's
    API and nothing about any provider, which is the point: swapping
    NVIDIA NIM for something else changes no frontend code.
+
+   Usage:
+
+     const sat = new SaturdayClient('https://saturday.you.workers.dev', 'user-id');
+     const { id } = await sat.createConversation('My chat');
+     const text = await sat.chat([{ role: 'user', content: 'Hello' }], 'smart', {
+       onRouting: (r) => console.log('answered by', r.modelId),
+       onDelta: (delta, whole) => render(whole),
+     });
+     await sat.addMessages(id, [
+       { role: 'user', content: 'Hello' },
+       { role: 'assistant', content: text },
+     ]);
    ============================================================ */
 
 export interface Model {
@@ -37,17 +50,20 @@ export class SaturdayClient {
 
   async providers() {
     const r = await fetch(`${this.base}/api/providers`, { headers: this.headers() });
-    return (await r.json()).providers as Array<{ id: string; name: string; configured: boolean }>;
+    const data = (await r.json()) as { providers: Array<{ id: string; name: string; configured: boolean }> };
+    return data.providers;
   }
 
   async models(availableOnly = true): Promise<Model[]> {
     const r = await fetch(`${this.base}/api/models${availableOnly ? '/available' : ''}`, { headers: this.headers() });
-    return (await r.json()).models;
+    const data = (await r.json()) as { models: Model[] };
+    return data.models;
   }
 
   async health() {
     const r = await fetch(`${this.base}/api/models/health`, { headers: this.headers() });
-    return (await r.json()).health;
+    const data = (await r.json()) as { health: unknown };
+    return data.health;
   }
 
   /** Streams a reply. `model` is 'smart', 'free', or a model id. */
@@ -62,7 +78,7 @@ export class SaturdayClient {
       body: JSON.stringify({ messages, model }),
     });
     if (!res.ok || !res.body) {
-      const body = await res.json().catch(() => ({ error: 'upstream_error' }));
+      const body = (await res.json().catch(() => ({ error: 'upstream_error' }))) as { error?: string; message?: string };
       handlers.onError?.({ code: body.error ?? 'upstream_error', message: body.message ?? 'Request failed' });
       return '';
     }
@@ -97,6 +113,11 @@ export class SaturdayClient {
   }
   updateConversation(id: string, patch: Record<string, unknown>) {
     return fetch(`${this.base}/api/conversations/${id}`, { method: 'PATCH', headers: this.headers(), body: JSON.stringify(patch) }).then((r) => r.json());
+  }
+  /** Append messages to a conversation. `id` on a message makes the write an
+      upsert, so retries and regenerated answers converge instead of duplicating. */
+  addMessages(id: string, messages: Array<{ id?: string; role: 'user' | 'assistant'; content: string; routing?: unknown; createdAt?: number }>) {
+    return fetch(`${this.base}/api/conversations/${id}/messages`, { method: 'POST', headers: this.headers(), body: JSON.stringify({ messages }) }).then((r) => r.json());
   }
   deleteConversation(id: string) {
     return fetch(`${this.base}/api/conversations/${id}`, { method: 'DELETE', headers: this.headers() }).then((r) => r.json());

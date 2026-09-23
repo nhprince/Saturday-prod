@@ -1,6 +1,7 @@
 # The admin panel
 
-`admin/index.html` — a second single-file app, a real dashboard over the API's admin endpoints.
+`api/public/admin/index.html` — a second single-file app, served at `/admin/` by the same
+Worker: a real dashboard over the API's admin endpoints.
 Open it, sign in with your `ADMIN_PASSWORD` (or a rotated panel password — see **System**
 below), and every screen below is live.
 
@@ -70,9 +71,9 @@ changelog, whatever your own integration wants to read back from `GET /api/cms?k
 
 ## Users
 
-Every device that's talked to the API (created automatically on first contact — there's no
-signup flow to manage). Change role or status inline, inspect someone's recent conversations,
-delete a user (cascades to their conversations and messages).
+Every device that has started a conversation against the API (created automatically on that
+first exchange — there's no signup flow to manage). Change role or status inline, inspect
+someone's recent conversations, delete a user (cascades to their conversations and messages).
 
 ## Conversations
 

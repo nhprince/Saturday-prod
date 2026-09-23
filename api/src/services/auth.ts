@@ -95,7 +95,9 @@ async function verifyPasswordHash(password: string, stored: string): Promise<boo
   } catch { return false; }
 }
 
-/** KV hash first (an admin-set rotation), then the env secret — so the panel never locks anyone out. */
+/** Once a panel password has been set, its KV hash is the ONLY credential —
+ *  so rotation fully replaces the secret with no redeploy. Until then the
+ *  env secret alone unlocks the panel. */
 export async function verifyAdminPassword(env: Env, candidate: string): Promise<boolean> {
   if (!candidate) return false;
   const stored = await env.REGISTRY.get(PASSWORD_KEY);

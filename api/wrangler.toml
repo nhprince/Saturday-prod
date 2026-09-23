@@ -1,10 +1,21 @@
-name = "saturday-api"
+name = "saturday"
 main = "src/index.ts"
 compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat"]
 
-# --- Free-tier storage ---------------------------------------------------
-# KV holds the model registry, health records and circuit-breaker state.
+# --- The one deployment: static site + API, same origin --------------------
+# public/  serves the chat app at / and the admin panel at /admin/
+# src/     serves the API at /api/* (run_worker_first forces those paths
+#          through the Worker; everything else is answered by the asset layer,
+#          which is free and doesn't count against your Worker request quota).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# --- Free-tier storage -------------------------------------------------------
+# KV holds the model registry, health records and rate-limit counters.
+# No payment method required for KV or D1 — both are on the free plan.
 [[kv_namespaces]]
 binding = "REGISTRY"
 id = "replace-with-your-kv-id"
@@ -19,26 +30,22 @@ database_id = "replace-with-your-d1-id"
 [ai]
 binding = "AI"
 
-# R2 is optional; only needed once attachments are stored server-side.
-# [[r2_buckets]]
-# binding = "FILES"
-# bucket_name = "saturday-files"
-
 [triggers]
 crons = ["*/30 * * * *"]   # periodic health sweep, staggered and budgeted
 
 [vars]
-# Add every origin that will call this API: the chat frontend and the admin panel,
-# whichever domains you deploy them to (Cloudflare Pages gives you one per project,
-# or serve them from paths on the same domain and list it once).
-ALLOWED_ORIGINS = "https://saturday.pages.dev,https://saturday-admin.pages.dev,http://localhost:5173"
+# Same-origin by default: the site and API are one deployment, so the browser
+# never makes a cross-origin request. This list now only matters if you call
+# the API from a client hosted on a different domain — add its origin here.
+ALLOWED_ORIGINS = "http://localhost:5173"
 HEALTH_TTL_SECONDS = "900"
 HEALTH_PROBE_BUDGET = "12"
 
-# Secrets — set with `wrangler secret put <NAME>`, never in this file:
+# Secrets — set in the dashboard (Workers & Pages → your Worker → Settings →
+# Variables and Secrets) or with `wrangler secret put <NAME>`, never in here:
 #   NVIDIA_NIM_API_KEY
 #   OPENROUTER_API_KEY
-#   CLOUDFLARE_API_KEY
-#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_API_KEY        (optional — the [ai] binding usually covers it)
+#   CLOUDFLARE_ACCOUNT_ID     (optional — same)
 #   ADMIN_TOKEN_SECRET     a long random string; signs admin bearer tokens
 #   ADMIN_PASSWORD         the password the admin panel's login screen checks

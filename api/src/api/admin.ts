@@ -112,8 +112,31 @@ export async function handleAdmin(req: Request, env: Env, url: URL, registry: Re
     if (method === 'PATCH') {
       const b = await body<Record<string, unknown>>(req);
       if (!b) return badRequest('invalid JSON body');
-      const next = await limiter.setConfig(b as any);
-      await audit(env, actorId, 'rate_limits.update', undefined, b);
+      // Validate before storing: a non-numeric value here would turn every
+      // comparison in the limiter into NaN and silently throttle the whole site.
+      const numericKeys = ['generalPerMinutePerIP', 'chatPerMinutePerIP', 'chatPerDayPerIP', 'maxMessageChars', 'providerPerMinuteDefault'] as const;
+      const patch: Record<string, unknown> = {};
+      for (const k of numericKeys) {
+        if (b[k] === undefined) continue;
+        const n = Number(b[k]);
+        if (!Number.isFinite(n) || n < 1) return badRequest(`${k} must be a positive number`);
+        patch[k] = Math.floor(n);
+      }
+      if (b.providerPerMinute !== undefined) {
+        if (typeof b.providerPerMinute !== 'object' || b.providerPerMinute === null || Array.isArray(b.providerPerMinute)) {
+          return badRequest('providerPerMinute must be an object mapping provider ids to limits');
+        }
+        const ppm: Record<string, number> = {};
+        for (const [pid, v] of Object.entries(b.providerPerMinute as Record<string, unknown>)) {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 1) return badRequest(`providerPerMinute.${pid} must be a positive number`);
+          ppm[pid] = Math.floor(n);
+        }
+        patch.providerPerMinute = ppm;
+      }
+      if (!Object.keys(patch).length) return badRequest('nothing to update');
+      const next = await limiter.setConfig(patch);
+      await audit(env, actorId, 'rate_limits.update', undefined, patch);
       return json(next);
     }
     return notFound();

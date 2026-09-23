@@ -77,7 +77,19 @@ export class RouterService {
   async route(req: RouteRequest): Promise<{ decision: RoutingDecision; model: AIModel; chain: AIModel[] }> {
     const [usable, rules] = await Promise.all([this.registry.available(), this.registry.routingRules()]);
     const c = classify(req);
-    const pool = eligible(usable, c);
+    let pool = eligible(usable, c);
+    let unverified = false;
+
+    if (!pool.length) {
+      // Fresh deployments have no health records yet, so every model is
+      // 'unknown' and available() is empty. Rather than refusing outright,
+      // fall back to models we simply have not proven yet — between the
+      // fallback chain and health.observe(), the first real request becomes
+      // the first real health signal instead of a guaranteed 503.
+      const all = await this.registry.models();
+      pool = eligible(all.filter((m) => m.status === 'unknown'), c);
+      unverified = pool.length > 0;
+    }
 
     if (!pool.length) {
       const err = new Error('No compatible model is available');
@@ -94,7 +106,8 @@ export class RouterService {
           chain: this.chainFor(chosen, pool, c),
           decision: {
             mode: 'manual', modelId: chosen.id, provider: chosen.provider,
-            signals: c.signals, requires: c.requires, reason: 'Chosen by the user',
+            signals: c.signals, requires: c.requires,
+            reason: 'Chosen by the user' + (unverified ? ' (not yet health-checked)' : ''),
             candidates: pool.map((m) => m.id),
           },
         };
@@ -123,11 +136,12 @@ export class RouterService {
         provider: model.provider,
         signals: c.signals,
         requires: c.requires,
-        reason: matchedRule
+        reason: (matchedRule
           ? `Matched routing rule for "${c.signals.find((s) => rules.some((r) => r.match_signal === s)) ?? c.signals[0]}"`
           : free
           ? 'Smallest healthy model that meets the requirements'
-          : c.signals.length ? `Matched: ${c.signals.join(', ')}` : 'General request',
+          : c.signals.length ? `Matched: ${c.signals.join(', ')}` : 'General request')
+          + (unverified ? ' — model not yet health-checked' : ''),
         candidates: sorted.slice(0, 5).map((m) => m.id),
         ...(req.selection !== 'smart' && req.selection !== 'free' ? { fallbackFrom: req.selection } : {}),
       },

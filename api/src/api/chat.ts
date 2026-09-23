@@ -33,6 +33,31 @@ function textLength(messages: AIMessage[]): number {
     : m.content.reduce((s, p) => s + (p.text?.length ?? 0), 0)), 0);
 }
 
+/** Inline images ride inside the JSON body as data URLs (base64 = 4/3 the bytes).
+ *  They are not counted by the character cap — they get their own hard limit so a
+ *  huge image cannot smuggle an oversized request past maxMessageChars. */
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+function inlineImageBytes(messages: AIMessage[]): number {
+  let bytes = 0;
+  for (const m of messages) {
+    if (!Array.isArray(m.content)) continue;
+    for (const p of m.content) {
+      const url = p.image_url?.url ?? '';
+      if (url.startsWith('data:')) bytes += Math.ceil((url.length * 3) / 4);
+    }
+  }
+  return bytes;
+}
+
+function imageSizeCheck(messages: AIMessage[]): Response | null {
+  if (inlineImageBytes(messages) > MAX_INLINE_IMAGE_BYTES) {
+    return Response.json(
+      { error: 'message_too_long', message: 'Attached images exceed the 8 MB inline limit for this deployment.' },
+      { status: 413 });
+  }
+  return null;
+}
+
 export async function handleChatStream(req: Request, env: Env): Promise<Response> {
   const body = (await req.json()) as ChatBody;
   if (!Array.isArray(body.messages) || !body.messages.length) {
@@ -48,6 +73,8 @@ export async function handleChatStream(req: Request, env: Env): Promise<Response
   if (textLength(body.messages) > maxChars) {
     return Response.json({ error: 'message_too_long', message: `Messages exceed the ${maxChars}-character limit for this deployment.` }, { status: 413 });
   }
+  const tooBig = imageSizeCheck(body.messages);
+  if (tooBig) return tooBig;
 
   const hasImages = body.messages.some(
     (m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url'));
@@ -161,6 +188,8 @@ export async function handleChat(req: Request, env: Env): Promise<Response> {
   if (textLength(body.messages) > maxChars) {
     return Response.json({ error: 'message_too_long', message: `Messages exceed the ${maxChars}-character limit for this deployment.` }, { status: 413 });
   }
+  const tooBig = imageSizeCheck(body.messages);
+  if (tooBig) return tooBig;
 
   const hasImages = body.messages?.some(
     (m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url'));
@@ -169,7 +198,9 @@ export async function handleChat(req: Request, env: Env): Promise<Response> {
   try {
     routed = await router.route({ selection: body.model ?? 'smart', messages: body.messages, hasImages, wantsJson: body.json });
   } catch {
-    return Response.json({ error: 'no_model' }, { status: 503 });
+    return Response.json(
+      { error: 'no_model', message: 'No compatible model is available right now.' },
+      { status: 503 });
   }
 
   for (const model of [routed.model, ...routed.chain]) {

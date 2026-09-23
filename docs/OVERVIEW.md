@@ -15,35 +15,38 @@ saturday/
 │   ├── API_REFERENCE.md
 │   ├── SECURITY.md
 │   └── DEPLOYMENT.md
-├── frontend/index.html        the chat app — one file, no build step
-├── admin/index.html           the admin panel — one file, no build step
-└── api/                       Cloudflare Worker: providers, routing, health, rate limiting, admin API
-    ├── src/
+└── api/                       ONE Cloudflare Worker = the whole product
+    ├── public/index.html      the chat app — one file, no build step (served at /)
+    ├── public/admin/index.html the admin panel — one file, no build step (served at /admin/)
+    ├── src/                   the API — providers, routing, health, rate limiting, admin API
+    ├── client/saturday-client.ts
+    ├── test/                  vitest suite over routing, health, rate limiting, auth, config
     ├── schema.sql
-    ├── wrangler.toml
-    └── client/saturday-client.ts
+    └── wrangler.toml
 ```
 
 ## The three pieces, in one paragraph each
 
-**The frontend** (`frontend/index.html`) is a single self-contained HTML file — no build tool,
+**The frontend** (`api/public/index.html`) is a single self-contained HTML file — no build tool,
 no framework, no dependencies beyond two Google Fonts. It runs two ways depending on where it's
 opened: inside Claude.ai (or any Claude Artifact host), it talks to Claude directly through the
 artifact's built-in model-sampling capability, so it works with zero configuration and zero
-cost. Opened anywhere else — a plain browser tab, a Cloudflare Pages deployment — it can
-instead (or additionally) talk to your own deployed API, which is how it gets its own provider
-keys, persistent storage, and admin-controlled branding. See `docs/FRONTEND.md`.
+cost. Served by the deployed Worker (or opened anywhere else), it instead (or additionally)
+talks to the API on the same origin, which is how it gets its own provider keys, persistent
+config, and admin-controlled branding. See `docs/FRONTEND.md`.
 
-**The admin panel** (`admin/index.html`) is a second, equally dependency-free file: a real
-dashboard over the API's admin endpoints. Providers, models, routing rules, rate limits, users,
-conversations, site branding and content, feature flags, an audit log, and maintenance mode —
-all of it live, all of it backed by a real endpoint, none of it decorative. See `docs/ADMIN.md`.
+**The admin panel** (`api/public/admin/index.html`) is a second, equally dependency-free file: a
+real dashboard over the API's admin endpoints. Providers, models, routing rules, rate limits,
+users, conversations, site branding and content, feature flags, an audit log, and maintenance
+mode — all of it live, all of it backed by a real endpoint, none of it decorative. See
+`docs/ADMIN.md`.
 
-**The API** (`api/`) is a Cloudflare Worker. It normalizes multiple AI providers behind one
-interface, health-checks them, routes requests between them (a cheap/fast "Free Router" and a
-task-aware "Smart Router"), rate-limits aggressively enough to survive being fully public with
-no login wall, and exposes everything the admin panel needs to control the product without a
-redeploy. See `docs/BACKEND.md` and `docs/API_REFERENCE.md`.
+**The API** (`api/`) is a Cloudflare Worker that also serves both frontends as static assets —
+one deployment, one origin. It normalizes multiple AI providers behind one interface,
+health-checks them, routes requests between them (a cheap/fast "Free Router" and a task-aware
+"Smart Router"), rate-limits aggressively enough to survive being fully public with no login
+wall, and exposes everything the admin panel needs to control the product without a redeploy.
+See `docs/BACKEND.md` and `docs/API_REFERENCE.md`.
 
 ## Design principles that show up everywhere in the code
 
