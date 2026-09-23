@@ -18,13 +18,13 @@ run_worker_first = ["/api/*"]
 # No payment method required for KV or D1 — both are on the free plan.
 [[kv_namespaces]]
 binding = "REGISTRY"
-id = "replace-with-your-kv-id"
+id = "18f0fe2dfcad43c2a27c86a423aa1189"
 
 # D1 holds conversations, users, admin config and audit rows.
 [[d1_databases]]
 binding = "DB"
 database_name = "saturday"
-database_id = "replace-with-your-d1-id"
+database_id = "a16e2dbf-0ee2-44b6-9607-608adcbfd227"
 
 # Workers AI — free allocation, used as a provider and as a fallback.
 [ai]
