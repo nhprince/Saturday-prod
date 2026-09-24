@@ -31,7 +31,11 @@ database_id = "a16e2dbf-0ee2-44b6-9607-608adcbfd227"
 binding = "AI"
 
 [triggers]
-crons = ["*/30 * * * *"]   # periodic health sweep, staggered and budgeted
+# Hourly probe sweep. Every cron run spends KV writes (catalog + health records),
+# and the free plan caps those at 1,000/day shared with rate-limit counters —
+# hourly keeps the catalogue warm without squeezing the request path's budget.
+# (Real generations feed the health system too, so an active site stays fresh.)
+crons = ["7 * * * *"]
 
 [vars]
 # Same-origin by default: the site and API are one deployment, so the browser

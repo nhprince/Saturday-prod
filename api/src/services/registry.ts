@@ -177,7 +177,8 @@ export class Registry {
       rank[a.tier] - rank[b.tier] || a.displayName.localeCompare(b.displayName));
 
     const catalog: Catalog = { discoveredAt: Date.now(), models, errors };
-    await this.env.REGISTRY.put(CATALOG_KEY, JSON.stringify(catalog), { expirationTtl: CATALOG_TTL });
+    await this.env.REGISTRY.put(CATALOG_KEY, JSON.stringify(catalog), { expirationTtl: CATALOG_TTL })
+      .catch((e) => console.error('catalog cache write failed', (e as Error).message));
     return catalog;
   }
 

@@ -80,3 +80,35 @@ describe('fixed-window counters', () => {
     expect(await limiter.maxMessageChars()).toBe(4000);
   });
 });
+
+describe('storage faults fail OPEN, never take the API down', () => {
+  /* Regression test for a production outage: when KV writes hit the free
+     plan's daily quota, every limiter threw *outside* the request's error
+     handler and the whole Worker answered Cloudflare 1101 for every route —
+     including /api/health. */
+  const deadKV = {
+    async get() { throw new Error('KV_STORAGE_QUOTA_EXCEEDED'); },
+    async put() { throw new Error('KV_STORAGE_QUOTA_EXCEEDED'); },
+    async delete() { throw new Error('KV_STORAGE_QUOTA_EXCEEDED'); },
+  };
+
+  it('generalAllowed allows when the store is down', async () => {
+    const limiter = new RateLimiter(fakeEnv({ REGISTRY: deadKV } as any));
+    expect((await limiter.generalAllowed('ip')).ok).toBe(true);
+  });
+
+  it('chatAllowed allows when the store is down', async () => {
+    const limiter = new RateLimiter(fakeEnv({ REGISTRY: deadKV } as any));
+    expect((await limiter.chatAllowed('ip')).ok).toBe(true);
+  });
+
+  it('providerAllowed allows when the store is down', async () => {
+    const limiter = new RateLimiter(fakeEnv({ REGISTRY: deadKV } as any));
+    expect((await limiter.providerAllowed('nvidia-nim')).ok).toBe(true);
+  });
+
+  it('maxMessageChars falls back to the default when the store is down', async () => {
+    const limiter = new RateLimiter(fakeEnv({ REGISTRY: deadKV } as any));
+    expect(await limiter.maxMessageChars()).toBe(8000);
+  });
+});

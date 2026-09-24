@@ -1439,8 +1439,10 @@ const Remote = {
       does not need to know which kind of provider it is talking to. */
   makeSample(providerId) {
     return async (turns, opts = {}) => {
+      // Same-origin deploys collapse the base to '' (relative fetch) — that IS a
+      // valid configuration, so guard on isConfigured(), not on the string.
+      if (!this.isConfigured()) { const e = new Error('not configured'); e.code = 'not_declared'; throw e; }
       const base = this.base();
-      if (!base) { const e = new Error('not configured'); e.code = 'not_declared'; throw e; }
       const modelId = opts.modelId;
       const messages = this.toBackendMessages(turns, opts.imageUrls || []);
       let res;

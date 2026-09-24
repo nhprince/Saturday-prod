@@ -89,11 +89,16 @@ export class HealthService {
   }
 
   private async write(record: ModelHealth) {
-    await this.env.REGISTRY.put(KEY(record.modelId), JSON.stringify(record));
-    const index = (await this.env.REGISTRY.get<string[]>(INDEX_KEY, 'json')) ?? [];
-    if (!index.includes(record.modelId)) {
-      index.push(record.modelId);
-      await this.env.REGISTRY.put(INDEX_KEY, JSON.stringify(index));
+    try {
+      await this.env.REGISTRY.put(KEY(record.modelId), JSON.stringify(record));
+      const index = (await this.env.REGISTRY.get<string[]>(INDEX_KEY, 'json')) ?? [];
+      if (!index.includes(record.modelId)) {
+        index.push(record.modelId);
+        await this.env.REGISTRY.put(INDEX_KEY, JSON.stringify(index));
+      }
+    } catch (e) {
+      // Health bookkeeping must never break the request it was observing.
+      console.error('health record write failed', (e as Error).message);
     }
   }
 
@@ -137,16 +142,22 @@ export class HealthService {
     return { checked, skipped: models.length - checked };
   }
 
-  /** Simple token bucket in KV so parallel workers cannot overspend the quota. */
+  /** Simple token bucket in KV so parallel workers cannot overspend the quota.
+      Fail-open like the rate limiter: a storage fault stalls probing, not the site. */
   private async takeBudget(want: number): Promise<number> {
-    const now = Date.now();
-    const row = (await this.env.REGISTRY.get<{ window: number; used: number }>(BUDGET_KEY, 'json')) ?? { window: now, used: 0 };
-    const WINDOW = 15 * 60_000;
-    if (now - row.window > WINDOW) { row.window = now; row.used = 0; }
-    const remaining = Math.max(0, this.budget - row.used);
-    const grant = Math.min(want, remaining);
-    row.used += grant;
-    await this.env.REGISTRY.put(BUDGET_KEY, JSON.stringify(row), { expirationTtl: 3600 });
-    return grant;
+    try {
+      const now = Date.now();
+      const row = (await this.env.REGISTRY.get<{ window: number; used: number }>(BUDGET_KEY, 'json')) ?? { window: now, used: 0 };
+      const WINDOW = 15 * 60_000;
+      if (now - row.window > WINDOW) { row.window = now; row.used = 0; }
+      const remaining = Math.max(0, this.budget - row.used);
+      const grant = Math.min(want, remaining);
+      row.used += grant;
+      await this.env.REGISTRY.put(BUDGET_KEY, JSON.stringify(row), { expirationTtl: 3600 });
+      return grant;
+    } catch (e) {
+      console.error('probe budget store fault — granting request', (e as Error).message);
+      return want;
+    }
   }
 }

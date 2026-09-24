@@ -16,7 +16,7 @@ const json = (data: unknown, init: ResponseInit = {}) => Response.json(data, ini
 
 function corsHeaders(req: Request, env: Env) {
   const origin = req.headers.get('origin') ?? '';
-  const allowed = env.ALLOWED_ORIGINS.split(',').map((s) => s.trim());
+  const allowed = (env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim());
   const ok = allowed.includes(origin) || allowed.includes('*');
   return {
     'access-control-allow-origin': ok ? origin : allowed[0] ?? '',
@@ -27,14 +27,20 @@ function corsHeaders(req: Request, env: Env) {
   };
 }
 
-/** Sliding window per key, so login attempts can be throttled harder than everything else. */
+/** Sliding window per key, so login attempts can be throttled harder than everything else.
+    Fail-open: a storage fault must never lock the admin out of their own panel. */
 async function rateLimit(env: Env, keyPart: string, limit: number, windowMs: number): Promise<boolean> {
-  const key = `rl:${keyPart}`;
-  const row = (await env.REGISTRY.get<{ t: number; n: number }>(key, 'json')) ?? { t: Date.now(), n: 0 };
-  if (Date.now() - row.t > windowMs) { row.t = Date.now(); row.n = 0; }
-  row.n++;
-  await env.REGISTRY.put(key, JSON.stringify(row), { expirationTtl: Math.ceil(windowMs / 1000) + 30 });
-  return row.n <= limit;
+  try {
+    const key = `rl:${keyPart}`;
+    const row = (await env.REGISTRY.get<{ t: number; n: number }>(key, 'json')) ?? { t: Date.now(), n: 0 };
+    if (Date.now() - row.t > windowMs) { row.t = Date.now(); row.n = 0; }
+    row.n++;
+    await env.REGISTRY.put(key, JSON.stringify(row), { expirationTtl: Math.ceil(windowMs / 1000) + 30 });
+    return row.n <= limit;
+  } catch (e) {
+    console.error('rate-limit store fault — allowing request', (e as Error).message);
+    return true;
+  }
 }
 const ipOf = (req: Request) => req.headers.get('cf-connecting-ip') ?? 'anon';
 
@@ -179,7 +185,7 @@ export default {
 
     /* ---- maintenance mode: everything but health and admin routes is paused ---- */
     if (!p.startsWith('/api/admin') && p !== '/api/health') {
-      const maintenance = (await env.REGISTRY.get('admin:maintenance', 'json')) as { enabled?: boolean; message?: string } | null;
+      const maintenance = (await env.REGISTRY.get('admin:maintenance', 'json').catch(() => null)) as { enabled?: boolean; message?: string } | null;
       if (maintenance?.enabled) {
         return respond(json({ error: 'maintenance', message: maintenance.message || 'Saturday is briefly offline for maintenance.' }, { status: 503 }));
       }
