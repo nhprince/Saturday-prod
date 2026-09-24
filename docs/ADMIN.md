@@ -3,7 +3,9 @@
 `api/public/admin/index.html` — a second single-file app, served at `/admin/` by the same
 Worker: a real dashboard over the API's admin endpoints.
 Open it, sign in with your `ADMIN_PASSWORD` (or a rotated panel password — see **System**
-below), and every screen below is live.
+below; the API base URL is pre-filled with the site's own origin), and every screen below is
+live. The sidebar icon next to the brand collapses the rail (remembered per browser); on small
+screens the same icon in the top bar opens the drawer — identical to the chat app.
 
 ## Overview
 
@@ -32,8 +34,11 @@ models immediately. The key is never shown back to you in full — only masked
 ## Models
 
 Every discovered model, across every provider, with live status, latency, and last-checked
-time. Filter by status. Force a re-check on one model or all of them. Disable a specific model
-without touching its provider (useful when a provider's catalogue includes something flaky).
+time. Filter by status. Force a re-check on one model or all of them (the panel loops
+server-side sweeps until the whole catalogue has actually been probed — none of it silently
+"checks 0"). Disable a specific model without touching its provider: a model you disabled is
+marked **disabled** — distinct from a model that's *unavailable* because its health checks fail —
+and stays out of the router and picker until you enable it again.
 
 ## Routing
 

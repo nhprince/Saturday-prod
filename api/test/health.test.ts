@@ -1,6 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { HealthService } from '../src/services/health';
 import { fakeEnv } from './helpers';
+import { AIModel } from '../src/types';
+
+const mkModel = (id: string) => ({
+  id, provider: 'p', providerModelId: id, displayName: id,
+  capabilities: { text: true, vision: false, tools: false },
+  free: true, tier: 'small', status: 'unknown',
+} as unknown as AIModel);
+
+const workingProvider = {
+  id: 'p', name: 'P', isConfigured: () => true,
+  healthCheck: async () => ({ state: 'WORKING' as const, latencyMs: 5 }),
+  listModels: async () => [], generate: async () => { throw new Error('nope'); },
+  stream: async function* () { /* never */ },
+};
 
 describe('health observe', () => {
   it('marks a successful generation as working with zero failures', async () => {
@@ -71,5 +85,28 @@ describe('health observe', () => {
     await h.observe('m2', false, 10, 'NOT_FOUND');
     const all = await new HealthService(env).all();
     expect(all.map((r) => r.modelId).sort()).toEqual(['m1', 'm2']);
+  });
+});
+
+describe('health sweeps', () => {
+  it('a cron-style sweep respects an exhausted budget', async () => {
+    const h = new HealthService(fakeEnv({ HEALTH_PROBE_BUDGET: '0' }));
+    const r = await h.sweep([mkModel('a'), mkModel('b')], () => workingProvider as any);
+    expect(r.checked).toBe(0);
+    expect(r.reason).toBe('budget exhausted');
+  });
+
+  it('a forced (admin) sweep bypasses the budget', async () => {
+    const h = new HealthService(fakeEnv({ HEALTH_PROBE_BUDGET: '0' }));
+    const r = await h.sweep([mkModel('a'), mkModel('b')], () => workingProvider as any, { force: true });
+    expect(r.checked).toBe(2);
+  });
+
+  it('forced passes never re-check what they just probed, so multi-pass runs terminate', async () => {
+    const h = new HealthService(fakeEnv());
+    const models = [mkModel('a'), mkModel('b')];
+    await h.sweep(models, () => workingProvider as any, { force: true });
+    const again = await h.sweep(models, () => workingProvider as any, { force: true });
+    expect(again.checked).toBe(0);
   });
 });

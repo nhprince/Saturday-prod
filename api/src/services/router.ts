@@ -108,7 +108,7 @@ export class RouterService {
             mode: 'manual', modelId: chosen.id, provider: chosen.provider,
             signals: c.signals, requires: c.requires,
             reason: 'Chosen by the user' + (unverified ? ' (not yet health-checked)' : ''),
-            candidates: pool.map((m) => m.id),
+            candidates: pool.slice(0, 8).map((m) => m.id),
           },
         };
       }

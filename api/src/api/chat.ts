@@ -133,6 +133,10 @@ export async function handleChatStream(req: Request, env: Env): Promise<Response
             if (chunk.delta) { produced += chunk.delta.length; controller.enqueue(sse('delta', { delta: chunk.delta })); }
             if (chunk.done) break;
           }
+          // A 200-OK stream with zero characters is a failure wearing success
+          // clothes (non-chat model, upstream refusal wrapper, a buffered JSON
+          // error body). Treat it as one so health degrades and we fall back.
+          if (!produced) throw new ProviderError('ERROR', 'empty completion');
           await health.observe(model.id, true, Date.now() - t0);
           controller.enqueue(sse('done', { modelId: model.id, latencyMs: Date.now() - t0, chars: produced }));
           controller.close();
@@ -150,7 +154,9 @@ export async function handleChatStream(req: Request, env: Env): Promise<Response
           const last = i === attempts.length - 1;
           if (last) {
             controller.enqueue(sse('error', {
-              code: err.state === 'AUTH_FAILED' ? 'auth_failed' : err.state === 'RATE_LIMITED' ? 'rate_limited' : 'upstream_error',
+              code: err.message === 'empty completion' ? 'empty_completion'
+                : err.state === 'AUTH_FAILED' ? 'auth_failed'
+                : err.state === 'RATE_LIMITED' ? 'rate_limited' : 'upstream_error',
               message: 'Every eligible model failed for this request.',
             }));
             controller.close();
@@ -203,6 +209,7 @@ export async function handleChat(req: Request, env: Env): Promise<Response> {
       { status: 503 });
   }
 
+  let lastEmpty = false;
   for (const model of [routed.model, ...routed.chain]) {
     const provider = registry.providerFor(model);
     if (!provider) continue;
@@ -220,8 +227,11 @@ export async function handleChat(req: Request, env: Env): Promise<Response> {
       return Response.json({ ...res, routing: { ...routed.decision, modelId: model.id } });
     } catch (e) {
       const err = e as ProviderError;
+      lastEmpty = err.message === 'empty completion';
       await health.observe(model.id, false, Date.now() - t0, err.state ?? 'ERROR', err.message);
     }
   }
-  return Response.json({ error: 'upstream_error', message: 'Every eligible model failed, or the site is at capacity — please try again shortly.' }, { status: 502 });
+  return Response.json(
+    { error: lastEmpty ? 'empty_completion' : 'upstream_error', message: 'Every eligible model failed, or the site is at capacity — please try again shortly.' },
+    { status: 502 });
 }

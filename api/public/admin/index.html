@@ -156,80 +156,15 @@ body {
   font-feature-settings: 'kern' 1, 'liga' 1;
   overflow: hidden;
 }
-body::before {
-  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background:
-    radial-gradient(70% 55% at 15% 0%, var(--paper-warm) 0%, transparent 60%),
-    radial-gradient(60% 50% at 100% 100%, var(--ember-soft) 0%, transparent 65%);
-  opacity: .9;
-}
-button, input, textarea, select { font: inherit; color: inherit; background: none; border: none; }
-button { cursor: pointer; }
-a { color: inherit; }
-::selection { background: var(--ember-soft); }
-:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
-:focus:not(:focus-visible) { outline: none; }
-
-/* scrollbars — quiet */
-* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-*::-webkit-scrollbar { width: 9px; height: 9px; }
-*::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
-*::-webkit-scrollbar-thumb:hover { background: var(--ink-4); background-clip: content-box; border: 3px solid transparent; }
-*::-webkit-scrollbar-track { background: transparent; }
-
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.mono { font-family: var(--mono); font-size: var(--t-xs); letter-spacing: .01em; }
-
-/* ---------- glass primitives ---------- */
-.glass {
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--line);
-  box-shadow: var(--sh-2), var(--glass-spec);
-}
-@supports not (backdrop-filter: blur(1px)) {
-  .glass { background: var(--surface); }
-}
-
-/* ---------- app shell ---------- */
-.app {
-  position: relative; z-index: 1;
-  display: grid;
-  grid-template-columns: var(--rail) minmax(0, 1fr);
-  height: 100dvh;
-  transition: grid-template-columns var(--d) var(--e-out);
-}
-.app[data-rail="collapsed"] { grid-template-columns: 0px minmax(0, 1fr); }
-
-.main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  min-width: 0; min-height: 0;
-  position: relative;
-}
-.center { width: var(--thread); margin-inline: auto; padding-inline: var(--gutter); }
-
-@media (max-width: 900px) {
-  .app { grid-template-columns: minmax(0, 1fr); }
-  :root { --rail: min(310px, 86vw); }
-}
 /* ============================================================
    SATURDAY ADMIN — layout & components
    Same tokens as the product, a working dashboard on top.
    ============================================================ */
-*, *::before, *::after { box-sizing: border-box; }
-* { margin: 0; padding: 0; }
-html, body { height: 100%; }
-body {
-  font-family: var(--font); font-size: var(--t-base); line-height: 1.5; color: var(--ink);
-  background: var(--paper); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
-  font-feature-settings: 'kern' 1, 'liga' 1;
-}
 body::before {
-  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .9;
-  background: radial-gradient(70% 55% at 15% 0%, var(--paper-warm) 0%, transparent 60%),
-              radial-gradient(60% 50% at 100% 100%, var(--ember-soft) 0%, transparent 65%);
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .5;
+  /* anchored off-canvas with soft stops — no visible seam cutting through content */
+  background: radial-gradient(90% 70% at 10% -10%, var(--paper-warm) 0%, transparent 55%),
+              radial-gradient(80% 60% at 110% 110%, var(--ember-soft) 0%, transparent 62%);
 }
 button, input, textarea, select { font: inherit; color: inherit; background: none; border: none; }
 button { cursor: pointer; }
@@ -332,7 +267,7 @@ a { color: inherit; text-decoration: none; }
   .nav-scrim { position: fixed; inset: 0; z-index: 35; background: rgba(16,14,11,.32); opacity: 0; pointer-events: none; transition: opacity var(--d); }
   .shell[data-nav="open"] .nav-scrim { opacity: 1; pointer-events: auto; }
 }
-@media (min-width: 901px) { .nav-scrim, .nav-toggle { display: none; } }
+@media (min-width: 901px) { .nav-scrim { display: none; } }
 
 /* ---------------- cards / stat grid ---------------- */
 .section-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -359,7 +294,7 @@ a { color: inherit; text-decoration: none; }
 .table-wrap { overflow-x: auto; }
 table.dt { width: 100%; border-collapse: collapse; font-size: var(--t-md); }
 table.dt th, table.dt td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
-table.dt th { font-size: var(--t-xs); font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; background: var(--surface-2); position: sticky; top: 0; }
+table.dt th { font-size: var(--t-xs); font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; background: var(--surface-2); position: sticky; top: 0; z-index: 2; }
 table.dt td.wrap { white-space: normal; }
 table.dt tbody tr { transition: background var(--d-fast); }
 table.dt tbody tr:hover { background: var(--surface-2); }
@@ -471,6 +406,21 @@ kbd { font-family: var(--mono); font-size: 10px; color: var(--ink-3); border: 1p
 .pager .sp { flex: 1; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
+
+/* ---- sidebar collapse + toggle visibility ----
+   Kept LAST in the stylesheet and with higher specificity than .icon-btn's
+   `display: grid`, so these rules actually win (the buried media query they
+   replace never did — which is why the old hamburger showed on desktop and
+   did nothing). */
+.shell[data-rail] .nav { transition: transform var(--d) var(--e-out); }
+@media (min-width: 901px) {
+  .shell[data-rail="collapsed"] { grid-template-columns: minmax(0, 1fr); }
+  .shell[data-rail="collapsed"] .nav { display: none; }
+  .shell:not([data-rail="collapsed"]) .nav-toggle { display: none; }
+}
+@media (max-width: 900px) {
+  .shell .nav-toggle { display: grid; }
+}
 </style>
 </head>
 <body>
@@ -509,6 +459,9 @@ kbd { font-family: var(--mono); font-size: 10px; color: var(--ink-3); border: 1p
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="3.4"/></svg>
       </span>
       <div><div>Saturday</div><small>Admin</small></div>
+      <button class="icon-btn" id="navCollapse" aria-label="Hide sidebar" title="Hide sidebar" style="margin-left:auto">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
+      </button>
     </div>
     <div class="nav-list" id="navList"></div>
     <div class="nav-foot">
@@ -526,8 +479,8 @@ kbd { font-family: var(--mono); font-size: 10px; color: var(--ink-3); border: 1p
       <span id="maintText">Maintenance mode is on — the product is showing a maintenance message to users.</span>
     </div>
     <header class="topbar">
-      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Show sidebar" title="Toggle sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
       </button>
       <h1 id="viewTitle">Overview</h1>
       <span class="sub" id="viewSub"></span>
@@ -749,6 +702,24 @@ function statusBadge(status) {
   return `<span class="dot" data-s="${status}"></span> <span class="badge ${map[status] || ''}" style="margin-left:6px">${esc(status)}</span>`;
 }
 function skeleton(el) { el.innerHTML = `<div class="skeleton">Loading…</div>`; }
+/** A forced health check runs server-side in slices (25 per pass). Loop the
+    passes so the whole catalogue really is checked — and so the toast can say
+    "checked N" instead of "checked 0" whenever a cron window just ran. */
+async function sweepAll(btn) {
+  btn.disabled = true;
+  let checked = 0, rounds = 0;
+  try {
+    while (rounds < 12) {
+      const r = await Api.post('/api/admin/models/health-check', { force: true });
+      checked += r.checked; rounds++;
+      if (!r.checked || !r.skipped) break;
+      toast(`Checked ${checked} so far — ${r.skipped} to go…`, 'info', 1800);
+    }
+    toast(checked ? `Health check complete — ${checked} models checked` : 'Everything was checked moments ago', 'ok');
+  } catch (err) { toast(err.message, 'error'); }
+  btn.disabled = false;
+  App.go(App.current);
+}
 function errCard(el, e, retry) {
   el.innerHTML = `<div class="card"><div class="card-body" style="display:flex;gap:12px;align-items:flex-start">
     ${svg('alert')}<div><b style="display:block;margin-bottom:3px">Couldn't load this</b>
@@ -806,12 +777,7 @@ window.Views = {
       try { const r = await Api.post('/api/admin/registry/refresh'); toast(`Discovered ${r.discovered} models`, 'ok'); App.go(App.current); }
       catch (err) { toast(err.message, 'error'); e.target.closest('button').disabled = false; }
     });
-    $('[data-check-all]', el).addEventListener('click', async (e) => {
-      const btn = e.target.closest('button'); btn.disabled = true;
-      try { const r = await Api.post('/api/admin/models/health-check', { force: true }); toast(`Checked ${r.checked} models (${r.skipped} skipped)`, 'ok'); App.go(App.current); }
-      catch (err) { toast(err.message, 'error'); }
-      btn.disabled = false;
-    });
+    $('[data-check-all]', el).addEventListener('click', (e) => sweepAll(e.target.closest('button')));
     $('[data-toggle-maint]', el).addEventListener('click', async () => {
       const next = !status.maintenance.enabled;
       if (next && !(await confirmDialog('Turn on maintenance mode?', 'Every request except this admin panel will receive a 503 until you turn it back off.', 'Turn on'))) return;
@@ -872,7 +838,7 @@ window.Views = {
 
     el.innerHTML = `
       <div class="section-head">
-        <h2>Models</h2><span class="desc">${rows.length} discovered across all configured providers</span><span class="sp"></span>
+        <span class="desc">${rows.length} discovered across all configured providers</span><span class="sp"></span>
         <button class="btn" data-refresh-registry>${svg('refresh')}Refresh catalogue</button>
         <button class="btn" data-check-all>${svg('refresh')}Health-check all</button>
       </div>
@@ -883,7 +849,7 @@ window.Views = {
         <tbody>${filtered.map((m) => `<tr>
           <td class="wrap"><b>${esc(m.displayName)}</b><div class="mono" style="color:var(--ink-3)">${esc(m.providerModelId || m.id)}</div></td>
           <td>${esc(m.provider)}</td>
-          <td>${statusBadge(m.status)}${m.status === 'unavailable' ? `<div class="mono" style="color:var(--ink-3);margin-top:2px">disabled</div>` : ''}</td>
+          <td>${statusBadge(m.status)}${m.disabled ? `<div class="mono" style="color:var(--ink-3);margin-top:2px">disabled</div>` : ''}</td>
           <td>${esc(m.tier)}</td>
           <td>${[m.capabilities.vision && 'vision', m.capabilities.reasoning && 'reasoning', m.capabilities.tools && 'tools'].filter(Boolean).map((c) => `<span class="badge" style="margin-right:3px">${c}</span>`).join('') || '—'}</td>
           <td class="num">${m.latencyMs ? m.latencyMs + 'ms' : '—'}</td>
@@ -898,11 +864,7 @@ window.Views = {
       try { const r = await Api.post('/api/admin/registry/refresh'); toast(`Discovered ${r.discovered} models`, 'ok'); App.go(App.current); }
       catch (err) { toast(err.message, 'error'); }
     });
-    $('[data-check-all]', el).addEventListener('click', async (e) => {
-      const btn = e.target.closest('button'); btn.disabled = true;
-      try { const r = await Api.post('/api/admin/models/health-check', { force: true }); toast(`Checked ${r.checked} models`, 'ok'); App.go(App.current); }
-      catch (err) { toast(err.message, 'error'); btn.disabled = false; }
-    });
+    $('[data-check-all]', el).addEventListener('click', (e) => sweepAll(e.target.closest('button')));
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-more]'); if (!b) return;
       const m = rows.find((x) => x.id === b.dataset.more);
@@ -911,8 +873,8 @@ window.Views = {
             try { await Api.post('/api/admin/models/health-check', { modelId: m.id, force: true }); toast('Checked', 'ok'); App.go(App.current); }
             catch (err) { toast(err.message, 'error'); }
           } },
-        { act: 'toggle', icon: m.status === 'unavailable' ? 'check' : 'x', label: m.status === 'unavailable' ? 'Enable model' : 'Disable model', danger: m.status !== 'unavailable', run: async () => {
-            try { await Api.post('/api/admin/models/toggle', { modelId: m.id, disabled: m.status !== 'unavailable' }); toast('Saved', 'ok'); App.go(App.current); }
+        { act: 'toggle', icon: m.disabled ? 'check' : 'x', label: m.disabled ? 'Enable model' : 'Disable model', danger: !m.disabled, run: async () => {
+            try { await Api.post('/api/admin/models/toggle', { modelId: m.id, disabled: !m.disabled }); toast(m.disabled ? 'Model enabled' : 'Model disabled', 'ok'); App.go(App.current); }
             catch (err) { toast(err.message, 'error'); }
           } },
       ]);
@@ -927,7 +889,7 @@ window.Views = {
     catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
     el.innerHTML = `
-      <div class="section-head"><h2>Smart Router rules</h2>
+      <div class="section-head">
         <span class="desc">The first enabled rule whose signal matches — and whose model or tier is still eligible — wins. Free Router ignores these and always picks the cheapest healthy model.</span>
         <span class="sp"></span><button class="btn primary" data-add>${svg('plus')}Add rule</button></div>
       <div class="card"><div class="table-wrap"><table class="dt">
@@ -1004,7 +966,7 @@ window.Views = {
     try { rows = (await Api.get('/api/admin/users')).users; }
     catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
-    el.innerHTML = `<div class="section-head"><h2>Users</h2><span class="desc">${rows.length} known — created automatically the first time each device talks to the API.</span></div>
+    el.innerHTML = `<div class="section-head"><span class="desc">${rows.length} known — created automatically the first time each device talks to the API.</span></div>
       <div class="card"><div class="table-wrap"><table class="dt">
         <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Conversations</th><th>Last seen</th><th></th></tr></thead>
         <tbody>${rows.length ? rows.map((u) => `<tr>
@@ -1053,7 +1015,7 @@ window.Views = {
     try { rows = (await Api.get(`/api/admin/conversations${query ? `?q=${encodeURIComponent(query)}` : ''}`)).conversations; }
     catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
-    el.innerHTML = `<div class="section-head"><h2>Conversations</h2><span class="desc">${rows.length} shown</span></div>
+    el.innerHTML = `<div class="section-head"><span class="desc">${rows.length} shown</span></div>
       <div class="card"><div class="card-head" style="gap:8px">
         <input class="tf" id="convSearch" placeholder="Search by title…" value="${esc(query)}" style="max-width:280px">
         <button class="btn sm" id="convSearchBtn">${svg('search')}Search</button></div>
@@ -1202,7 +1164,7 @@ window.Views = {
     } catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
     el.innerHTML = `
-      <div class="section-head"><h2>Rate limits</h2>
+      <div class="section-head">
         <span class="desc">Two layers protect a public, login-free site: a per-visitor limit on the composer, and a global limit per AI provider that every visitor's requests share — so combined traffic can never exceed what a free key allows.</span></div>
 
       <div class="card"><div class="card-head"><h3>Per-visitor (by IP)</h3></div>
@@ -1255,7 +1217,7 @@ window.Views = {
       <button class="icon-btn" data-remove-sugg aria-label="Remove">${svg('x')}</button></div>`;
 
     el.innerHTML = `
-      <div class="section-head"><h2>Branding & content</h2>
+      <div class="section-head">
         <span class="desc">Every visitor-facing piece of copy, the app icon, and the favicon. Saved instantly for every visitor — no deploy needed.</span></div>
 
       <div class="card"><div class="card-head"><h3>Brand</h3></div>
@@ -1322,7 +1284,7 @@ window.Views = {
     try { rows = (await Api.get('/api/admin/cms')).content; }
     catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
-    el.innerHTML = `<div class="section-head"><h2>Custom content</h2><span class="desc">Anything not covered by Branding & content — arbitrary key/value pairs the product (or your own integrations) can read from <span class="mono">/api/cms</span>.</span>
+    el.innerHTML = `<div class="section-head"><span class="desc">Anything not covered by Branding & content — arbitrary key/value pairs the product (or your own integrations) can read from <span class="mono">/api/cms</span>.</span>
       <span class="sp"></span><button class="btn primary" data-add>${svg('plus')}Add key</button></div>
       <div style="display:grid;gap:12px">${rows.filter((r) => !r.key.startsWith('site.')).map((r) => this.cmsCard(r)).join('') || '<div class="card"><div class="card-body"><div class="empty-note">No custom content yet.</div></div></div>'}</div>`;
 
@@ -1368,7 +1330,7 @@ window.Views = {
     try { rows = (await Api.get('/api/admin/flags')).flags; }
     catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
-    el.innerHTML = `<div class="section-head"><h2>Feature flags</h2><span class="desc">Read by the product at <span class="mono">/api/flags</span>.</span>
+    el.innerHTML = `<div class="section-head"><span class="desc">Read by the product at <span class="mono">/api/flags</span>.</span>
       <span class="sp"></span><button class="btn primary" data-add>${svg('plus')}Add flag</button></div>
       <div class="card"><div class="table-wrap"><table class="dt">
         <thead><tr><th>Key</th><th>Enabled</th><th>Rollout %</th><th></th></tr></thead>
@@ -1417,7 +1379,7 @@ window.Views = {
     try { rows = (await Api.get('/api/admin/audit?limit=100')).entries; }
     catch (e) { return errCard(el, e, () => App.go(App.current)); }
 
-    el.innerHTML = `<div class="section-head"><h2>Audit log</h2><span class="desc">Every admin action, most recent first.</span></div>
+    el.innerHTML = `<div class="section-head"><span class="desc">Every admin action, most recent first.</span></div>
       <div class="card"><div class="table-wrap"><table class="dt">
         <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
         <tbody>${rows.length ? rows.map((r) => `<tr>
@@ -1508,7 +1470,7 @@ const TITLES = { overview: ['Overview', 'How Saturday is doing right now'], prov
   branding: ['Branding & content', 'Every visitor-facing text, icon and image'],
   models: ['Models', 'Everything discovered across your providers'], routing: ['Routing', 'Bias Smart Router with rules'],
   users: ['Users', 'Everyone who has talked to Saturday'], conversations: ['Conversations', 'Search, inspect and moderate'],
-  cms: ['CMS content', 'Landing copy and announcements'], flags: ['Feature flags', 'Gradual rollouts, no deploy needed'],
+  cms: ['Custom content', 'Landing copy and announcements'], flags: ['Feature flags', 'Gradual rollouts, no deploy needed'],
   audit: ['Audit log', 'Every admin action'], settings: ['System', 'Maintenance mode and your admin password'] };
 
 window.App = {
@@ -1590,8 +1552,18 @@ window.App = {
     });
 
     $('#logoutBtn').addEventListener('click', () => { Auth.logout(); this.toLogin(); });
-    $('#navToggle').addEventListener('click', () => { $('#shell').dataset.nav = $('#shell').dataset.nav === 'open' ? 'closed' : 'open'; });
+    /* Same sidebar collapse the chat app has: desktop collapses the rail (state
+       persists), mobile slides the drawer. The button always does something. */
+    const toggleNav = () => {
+      const shell = $('#shell');
+      if (innerWidth <= 900) { shell.dataset.nav = shell.dataset.nav === 'open' ? 'closed' : 'open'; return; }
+      AS.set('rail', shell.dataset.rail === 'collapsed' ? 'open' : 'collapsed');
+      this.syncNav();
+    };
+    $('#navToggle').addEventListener('click', toggleNav);
+    $('#navCollapse').addEventListener('click', toggleNav);
     $('#navScrim').addEventListener('click', () => { $('#shell').dataset.nav = 'closed'; });
+    addEventListener('resize', debounce(() => this.syncNav(), 120));
     $('#navList').addEventListener('click', (e) => {
       const b = e.target.closest('[data-nav]'); if (b) this.go(b.dataset.nav);
     });
@@ -1602,8 +1574,15 @@ window.App = {
     addEventListener('keydown', (e) => { if (e.key === 'Escape') Pop.close(); });
   },
 
+  syncNav() {
+    const shell = $('#shell');
+    if (innerWidth <= 900) { shell.dataset.rail = 'open'; return; } // mobile uses the drawer, never the collapsed rail
+    shell.dataset.rail = AS.get('rail', 'open');
+  },
+
   async start() {
     this.bind();
+    this.syncNav();
     // Prefill the base URL: the remembered one from a previous session wins;
     // served same-origin by the Worker, this page's own origin is the right default.
     $('#apiBaseField').value = Auth.base()
