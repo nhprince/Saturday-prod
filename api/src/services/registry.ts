@@ -8,8 +8,7 @@ import { AIModel, AIProvider, Env, ModelHealth, ModelStatus } from '../types';
 import { buildProviders, CustomProvider } from '../providers';
 import { HealthService } from './health';
 
-// v2: catalogues now exclude non-chat models at discovery — don't reuse v1 caches.
-const CATALOG_KEY = 'registry:catalog:v2';
+const CATALOG_KEY = 'registry:catalog:v1';
 const CATALOG_TTL = 60 * 60; // provider catalogues change slowly
 
 interface Catalog { discoveredAt: number; models: AIModel[]; errors: Record<string, string>; }
@@ -193,11 +192,10 @@ export class Registry {
     const byId = new Map(health.map((h) => [h.modelId, h]));
     return models.map((m) => {
       const providerDisabled = providerConfigs.get(m.provider)?.enabled === 0;
-      const isDisabled = disabled.has(m.id) || providerDisabled;
       const h = byId.get(m.id);
-      const status: ModelStatus = isDisabled ? 'unavailable' : h ? h.status : 'unknown';
+      const status: ModelStatus = disabled.has(m.id) || providerDisabled ? 'unavailable' : h ? h.status : 'unknown';
       return {
-        ...m, status, disabled: isDisabled, latencyMs: h?.latencyMs,
+        ...m, status, latencyMs: h?.latencyMs,
         lastCheckedAt: h ? new Date(h.checkedAt).toISOString() : undefined,
       };
     });

@@ -159,11 +159,10 @@ body {
 }
 body::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  /* anchored off-canvas with soft stops — no visible seam cutting through content */
   background:
-    radial-gradient(90% 70% at 10% -10%, var(--paper-warm) 0%, transparent 55%),
-    radial-gradient(80% 60% at 110% 110%, var(--ember-soft) 0%, transparent 62%);
-  opacity: .5;
+    radial-gradient(70% 55% at 15% 0%, var(--paper-warm) 0%, transparent 60%),
+    radial-gradient(60% 50% at 100% 100%, var(--ember-soft) 0%, transparent 65%);
+  opacity: .9;
 }
 button, input, textarea, select { font: inherit; color: inherit; background: none; border: none; }
 button { cursor: pointer; }
@@ -1428,7 +1427,7 @@ const Remote = {
   },
 
   errorFromCode(code, message) {
-    const known = ['rate_limited', 'upstream_error', 'no_model', 'auth_failed', 'interrupted', 'empty_completion'];
+    const known = ['rate_limited', 'upstream_error', 'no_model', 'auth_failed', 'interrupted'];
     // auth_failed from the backend means the OPERATOR's provider key was rejected —
     // not that the visitor must sign in — so it must not render the runtime's
     // "sign in again" copy.
@@ -1823,7 +1822,6 @@ const FATAL = new Set(['not_granted', 'sampling_disabled', 'not_declared', 'capa
 const ERROR_COPY = {
   not_granted: ['Saturday needs your permission', 'This page was not allowed to use your Claude account, so it cannot generate a reply.'],
   sampling_disabled: ['Model access unavailable', 'Your account or organization does not currently have model access enabled.'],
-  not_declared: ['Provider not connected here', 'This model’s backend link is not active in this view. Try another model, or check Settings → AI & models.'],
   session_expired: ['Session expired', 'Sign in to Claude again, then resend the message.'],
   rate_limited: ['Rate limit reached', 'Too many requests for now. Wait a moment and try again — routing will avoid this model in the meantime.'],
   refused: ['Request declined', 'The model declined this input. Rephrasing or narrowing the request usually helps.'],

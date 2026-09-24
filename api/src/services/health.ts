@@ -112,30 +112,17 @@ export class HealthService {
    * budget, a concurrency limit, and the freshness/cooldown skip above.
    * Called from the cron trigger and from the admin panel — never from a
    * user request path.
-   *
-   * A forced sweep (an explicit admin action) bypasses the probe budget — an
-   * operator clicking "check all" is not background load. It is still capped
-   * per pass so a large catalogue is verified in a few short requests instead
-   * of one minutes-long one, and it skips anything probed in the last minute
-   * so back-to-back passes make progress instead of re-checking the same slice.
    */
   async sweep(models: AIModel[], providerOf: (m: AIModel) => AIProvider | null, opts: { force?: boolean; limit?: number } = {}) {
-    const MAX_FORCE_PER_SWEEP = 25;
-    let cap = opts.limit ?? (opts.force ? MAX_FORCE_PER_SWEEP : this.budget);
-    if (!opts.force) {
-      const budget = await this.takeBudget(cap);
-      if (budget <= 0) return { checked: 0, skipped: models.length, reason: 'budget exhausted' };
-      cap = budget;
-    }
+    const budget = await this.takeBudget(opts.limit ?? this.budget);
+    if (budget <= 0) return { checked: 0, skipped: models.length, reason: 'budget exhausted' };
 
     // Oldest-checked first, so attention spreads evenly across the catalogue.
     const withHealth = await Promise.all(models.map(async (m) => ({ m, h: await this.get(m.id) })));
     const queue = withHealth
-      .filter(({ h }) => opts.force
-        ? (h?.checkedAt ?? 0) < Date.now() - 60_000
-        : (!this.fresh(h) && (h?.cooldownUntil ?? 0) <= Date.now()))
+      .filter(({ h }) => opts.force || (!this.fresh(h) && (h?.cooldownUntil ?? 0) <= Date.now()))
       .sort((a, b) => (a.h?.checkedAt ?? 0) - (b.h?.checkedAt ?? 0))
-      .slice(0, cap);
+      .slice(0, budget);
 
     let checked = 0;
     const CONCURRENCY = 4;

@@ -45,7 +45,6 @@ export interface AIModel {
   free: boolean;
   tier: 'small' | 'medium' | 'large';
   status: ModelStatus;
-  disabled?: boolean;       // admin-disabled (or provider switched off) — not a health verdict
   latencyMs?: number;
   lastCheckedAt?: string;
   raw?: unknown;              // provider-specific metadata, preserved

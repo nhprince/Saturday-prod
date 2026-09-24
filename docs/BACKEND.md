@@ -42,14 +42,10 @@ adding one line to `buildProviders()`. Nothing else in the system needs to chang
 `Registry.catalog()` asks every provider for its model list, normalizes each into a common
 `AIModel` shape (capabilities inferred from the model's name and metadata: vision, tools,
 reasoning, JSON support; tier inferred from parameter-count hints in the name), and caches the
-result in KV for an hour. **Entries that cannot hold a conversation are filtered out at this
-point** — provider catalogues list guardrails, embedders, translators, OCR, image and music
-generators alongside chat models; name hints (plus declared output modalities where the provider
-publishes them) keep those out, so "available" can never describe a model that won't reply.
-Provider-specific metadata survives on `.raw` in case anything needs it later. Custom providers
-are loaded from D1 fresh on every `Registry` construction (once per request) and merged into the
-same list — admin CRUD operations force an immediate re-discovery so a newly added provider's
-models don't wait for the hourly cache to expire.
+result in KV for an hour. Provider-specific metadata survives on `.raw` in case anything needs
+it later. Custom providers are loaded from D1 fresh on every `Registry` construction (once per
+request) and merged into the same list — admin CRUD operations force an immediate re-discovery
+so a newly added provider's models don't wait for the hourly cache to expire.
 
 ## Health
 
@@ -59,15 +55,10 @@ Each model is probed with a cheap one-token completion and classified into one o
 `ERROR`, `UNKNOWN`), which collapse to the four statuses the UI cares about (`available`,
 `degraded`, `unavailable`, `unknown`). Auth and 404 failures cool down for 24 hours since they
 won't fix themselves without a configuration change; other failures back off exponentially,
-capped at an hour. A KV token bucket limits how many probes run in any 15-minute window for the
-*cron* sweep — an explicit "health-check all" from the admin panel bypasses the budget but is
-capped at 25 probes per pass (the panel loops passes, so a big catalogue finishes in a few
-clicks' worth of patience, not one minutes-long request that "checks 0").
-Real generations also feed this system (`health.observe()`), so most of the signal is free —
-and a HTTP-200 reply with **zero generated characters counts as a failure**, not a success, so
-a model that accepts the request but returns nothing falls back like any other error. Streams
-get a 30s time-to-first-byte watchdog (cleared once bytes flow, so slow-but-working models are
-never killed mid-answer) and non-streaming calls a 90s whole-request timeout.
+capped at an hour. A KV token bucket limits how many probes can run in any 15-minute window —
+the cron trigger sweeps the oldest-checked models first, at a concurrency of 4, so health
+checking itself never becomes a source of load. Real generations also feed this system
+(`health.observe()`), so most of the signal is free.
 
 ## Routing
 
