@@ -36,6 +36,14 @@ comment in `api/src/api/chat.ts` if you're curious why it's built this way.)
 Both layers, plus a general per-IP limit covering every other route and a max-message-length
 cap, are configurable from **Admin → Rate limits** with no redeploy.
 
+**Fail-open by design.** The counters live in KV, whose free plan caps writes at 1,000/day —
+and a rate limiter that takes the site down with it when storage faults would be worse than no
+limiter. So every storage-backed check (rate limits, health records, probe budget, the catalog
+cache) degrades to "allow" on a storage error and recovers on its own when the quota window
+resets. The hourly health-sweep cron exists partly for this reason: it keeps baseline KV write
+pressure low. Upstream provider 429s are still handled by health backoff and the fallback
+chain either way.
+
 ## Other abuse protections
 
 - **Message length cap** (`maxMessageChars`, default 8,000) — rejected with `413` before

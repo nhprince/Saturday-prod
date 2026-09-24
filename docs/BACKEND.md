@@ -42,10 +42,14 @@ adding one line to `buildProviders()`. Nothing else in the system needs to chang
 `Registry.catalog()` asks every provider for its model list, normalizes each into a common
 `AIModel` shape (capabilities inferred from the model's name and metadata: vision, tools,
 reasoning, JSON support; tier inferred from parameter-count hints in the name), and caches the
-result in KV for an hour. Provider-specific metadata survives on `.raw` in case anything needs
-it later. Custom providers are loaded from D1 fresh on every `Registry` construction (once per
-request) and merged into the same list — admin CRUD operations force an immediate re-discovery
-so a newly added provider's models don't wait for the hourly cache to expire.
+result in KV for an hour. **Anything that cannot hold a conversation is filtered out here** —
+provider catalogues mix guardrails, translators, embedders, OCR and media generators in with
+chat models; those are excluded by name hints (and by declared output modality where published),
+so "available" never describes a model that can't actually answer. Provider-specific metadata
+survives on `.raw` in case anything needs it later. Custom providers are loaded from D1 fresh
+on every `Registry` construction (once per request) and merged into the same list — admin CRUD
+operations force an immediate re-discovery so a newly added provider's models don't wait for
+the hourly cache to expire.
 
 ## Health
 
