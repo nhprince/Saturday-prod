@@ -15,6 +15,15 @@ const TOOL_HINTS = /instruct|tool|function|llama-3|qwen|mistral|nemotron|hermes/
 const SMALL_HINTS = /1b|2b|3b|4b|7b|8b|9b|mini|small|flash|lite|tiny/i;
 const LARGE_HINTS = /70b|72b|100b|123b|180b|235b|405b|480b|671b|large|ultra|max/i;
 
+/** Provider catalogues (especially NVIDIA NIM's) list far more than chat models:
+ *  guardrails, translators, embedders, OCR, image/music generators… They pass a
+ *  1-token health probe but cannot hold a conversation — so routers would pick
+ *  "available" models that can never answer. Filter them out at discovery.
+ *  Leading-delimiter matching keeps legit names safe: 'vision-instruct' stays, and
+ *  'sparse-moe' survives because '-' + 'sparse' never equals boundary + 'parse'. */
+const NON_CHAT_HINTS = /(?:^|[\/\-_.\s])(guard|nemoguard|safety|moderation|moderator|embed(?:ding|der)?s?|rerank|reward|grader|riva|translat\w*|transcribe\w*|whisper|asr|tts|parse|ocr|detect(?:or)?|lyria|music|audio|video|image[-_]?gen|diffusion|clip|ising|calibrat\w*|segment\w*)/i;
+export const looksChatty = (id: string) => !NON_CHAT_HINTS.test(id);
+
 function inferCapabilities(id: string, raw: Record<string, unknown> = {}): Capabilities {
   const n = id.toLowerCase();
   const modality = String((raw as any)?.architecture?.input_modalities ?? '');
@@ -55,8 +64,11 @@ abstract class OpenAICompatible implements AIProvider {
     };
   }
 
-  /** Providers may filter their catalogue (e.g. OpenRouter keeps only free models). */
-  protected keep(_raw: Record<string, unknown>): boolean { return true; }
+  /** Providers may filter their catalogue (e.g. OpenRouter keeps only free
+      models). Every provider at minimum drops non-chat models by name. */
+  protected keep(raw: Record<string, unknown>): boolean {
+    return looksChatty(String((raw as any)?.id ?? ''));
+  }
   protected isFree(_raw: Record<string, unknown>): boolean { return true; }
   protected contextOf(raw: Record<string, unknown>): number | undefined {
     const n = (raw as any).context_length ?? (raw as any).max_model_len ?? (raw as any).context_window;
@@ -129,8 +141,11 @@ abstract class OpenAICompatible implements AIProvider {
   }
 
   async generate(req: AIRequest): Promise<AIResponse> {
+    // Whole-body timeout: providers buffer full completions (some take 45s+) —
+    // 90s covers that without letting a wedged connection hang forever.
+    const signal = req.signal ? AbortSignal.any([req.signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000);
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST', headers: this.headers(), signal: req.signal,
+      method: 'POST', headers: this.headers(), signal,
       body: JSON.stringify(this.payload(req, false)),
     });
     if (!res.ok) {
@@ -138,8 +153,11 @@ abstract class OpenAICompatible implements AIProvider {
       throw new ProviderError(state, (await res.text()).slice(0, 300), res.status, state !== 'AUTH_FAILED');
     }
     const body = (await res.json()) as any;
+    if (body.error) throw new ProviderError('ERROR', String(body.error.message ?? body.error).slice(0, 300));
+    const text = body.choices?.[0]?.message?.content ?? '';
+    if (!text) throw new ProviderError('ERROR', 'empty completion');
     return {
-      text: body.choices?.[0]?.message?.content ?? '',
+      text,
       model: req.model.id,
       provider: this.id,
       finishReason: body.choices?.[0]?.finish_reason,
@@ -148,37 +166,65 @@ abstract class OpenAICompatible implements AIProvider {
   }
 
   async *stream(req: AIRequest): AsyncIterable<AIStreamChunk> {
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST', headers: this.headers(), signal: req.signal,
-      body: JSON.stringify(this.payload(req, true)),
-    });
+    // Time-to-first-byte watchdog, cleared once contact is established — a slow
+    // but healthy stream is never killed mid-answer (unlike a plain timeout,
+    // which would abort a legitimately long stream).
+    const ctl = new AbortController();
+    const onReqAbort = () => ctl.abort(req.signal?.reason);
+    req.signal?.addEventListener('abort', onReqAbort);
+    const ttfb = setTimeout(() => ctl.abort(new Error('provider did not start streaming in 30s')), 30_000);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST', headers: this.headers(), signal: ctl.signal,
+        body: JSON.stringify(this.payload(req, true)),
+      });
+    } catch (e) {
+      clearTimeout(ttfb);
+      req.signal?.removeEventListener('abort', onReqAbort);
+      const err = e as Error;
+      throw new ProviderError(err.name === 'AbortError' ? 'TIMEOUT' : 'ERROR', err.message);
+    }
     if (!res.ok || !res.body) {
+      clearTimeout(ttfb);
+      req.signal?.removeEventListener('abort', onReqAbort);
       const state = stateFromStatus(res.status);
       throw new ProviderError(state, (await res.text()).slice(0, 300), res.status, state !== 'AUTH_FAILED');
     }
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += value;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t.startsWith('data:')) continue;
-        const data = t.slice(5).trim();
-        if (data === '[DONE]') { yield { delta: '', done: true }; return; }
-        try {
-          const json = JSON.parse(data);
-          const delta = json.choices?.[0]?.delta?.content ?? '';
-          const finish = json.choices?.[0]?.finish_reason ?? undefined;
-          if (delta) yield { delta, done: false };
-          if (finish) yield { delta: '', done: true, finishReason: finish };
-        } catch { /* keep-alive or partial frame */ }
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        clearTimeout(ttfb); // first bytes arrived — the watchdog has done its job
+        buffer += value;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data:')) continue;
+          const data = t.slice(5).trim();
+          if (data === '[DONE]') { yield { delta: '', done: true }; return; }
+          try {
+            const json = JSON.parse(data);
+            // Some providers stream failures as data frames at HTTP 200 — surface them.
+            if (json.error) throw new ProviderError('ERROR', String(json.error.message ?? json.error).slice(0, 300));
+            const delta = json.choices?.[0]?.delta?.content ?? '';
+            const finish = json.choices?.[0]?.finish_reason ?? undefined;
+            if (delta) yield { delta, done: false };
+            if (finish) yield { delta: '', done: true, finishReason: finish };
+          } catch (e) {
+            if (e instanceof ProviderError) throw e;
+            /* keep-alive or partial frame */
+          }
+        }
       }
+      yield { delta: '', done: true };
+    } finally {
+      clearTimeout(ttfb);
+      req.signal?.removeEventListener('abort', onReqAbort);
     }
-    yield { delta: '', done: true };
   }
 }
 
@@ -205,8 +251,15 @@ export class OpenRouterProvider extends OpenAICompatible {
     this.apiKey = env.OPENROUTER_API_KEY;
     this.extraHeaders = { 'HTTP-Referer': 'https://saturday.pages.dev', 'X-Title': 'Saturday' };
   }
-  /** Only models the provider itself prices at zero are kept. */
-  protected override keep(raw: Record<string, unknown>) { return this.isFree(raw); }
+  /** Only free text-out chat models: priced at zero, chat-capable by name, and
+      — where the catalogue declares modalities — actually emitting text. */
+  protected override keep(raw: Record<string, unknown>) {
+    if (!super.keep(raw)) return false;
+    if (!this.isFree(raw)) return false;
+    const out = (raw as any)?.architecture?.output_modalities;
+    if (Array.isArray(out) && out.length && !out.includes('text')) return false;
+    return true;
+  }
   protected override isFree(raw: Record<string, unknown>) {
     const p = (raw as any).pricing ?? {};
     return Number(p.prompt ?? 1) === 0 && Number(p.completion ?? 1) === 0;
@@ -233,7 +286,9 @@ export class CustomProvider extends OpenAICompatible {
     this.freeOnly = !!row.free_only;
   }
 
-  protected override keep(raw: Record<string, unknown>) { return this.freeOnly ? this.isFree(raw) : true; }
+  protected override keep(raw: Record<string, unknown>) {
+    return super.keep(raw) && (this.freeOnly ? this.isFree(raw) : true);
+  }
   protected override isFree(raw: Record<string, unknown>) {
     // Not every custom endpoint publishes pricing; treat unknown pricing as free
     // rather than silently hiding the model, since the admin opted in explicitly.

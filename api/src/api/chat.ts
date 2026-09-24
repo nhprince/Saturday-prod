@@ -133,6 +133,10 @@ export async function handleChatStream(req: Request, env: Env): Promise<Response
             if (chunk.delta) { produced += chunk.delta.length; controller.enqueue(sse('delta', { delta: chunk.delta })); }
             if (chunk.done) break;
           }
+          // A 200-OK stream with zero characters is a failure wearing success
+          // clothes (a buffered error body, a refusal wrapper). Count it as one
+          // so health records the truth and the chain falls back.
+          if (!produced) throw new ProviderError('ERROR', 'empty completion');
           await health.observe(model.id, true, Date.now() - t0);
           controller.enqueue(sse('done', { modelId: model.id, latencyMs: Date.now() - t0, chars: produced }));
           controller.close();
@@ -150,7 +154,9 @@ export async function handleChatStream(req: Request, env: Env): Promise<Response
           const last = i === attempts.length - 1;
           if (last) {
             controller.enqueue(sse('error', {
-              code: err.state === 'AUTH_FAILED' ? 'auth_failed' : err.state === 'RATE_LIMITED' ? 'rate_limited' : 'upstream_error',
+              code: err.message === 'empty completion' ? 'empty_completion'
+                : err.state === 'AUTH_FAILED' ? 'auth_failed'
+                : err.state === 'RATE_LIMITED' ? 'rate_limited' : 'upstream_error',
               message: 'Every eligible model failed for this request.',
             }));
             controller.close();

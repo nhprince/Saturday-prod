@@ -8,7 +8,8 @@ import { AIModel, AIProvider, Env, ModelHealth, ModelStatus } from '../types';
 import { buildProviders, CustomProvider } from '../providers';
 import { HealthService } from './health';
 
-const CATALOG_KEY = 'registry:catalog:v1';
+// v2: catalogues now exclude non-chat models at discovery — don't reuse v1 caches.
+const CATALOG_KEY = 'registry:catalog:v2';
 const CATALOG_TTL = 60 * 60; // provider catalogues change slowly
 
 interface Catalog { discoveredAt: number; models: AIModel[]; errors: Record<string, string>; }
