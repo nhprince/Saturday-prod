@@ -278,9 +278,10 @@ a { color: inherit; text-decoration: none; }
 .shell.show { display: grid; }
 .nav {
   border-right: 1px solid var(--line); background: linear-gradient(180deg, var(--paper-warm), transparent 40%);
-  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden;
 }
 .nav-head { display: flex; align-items: center; gap: 9px; padding: var(--s4); font-weight: 600; font-size: 15px; letter-spacing: -.02em; }
+.nav-head .nav-brand { flex: 1; min-width: 0; }
 .nav-head .mark {
   width: 24px; height: 24px; border-radius: 8px; flex: none; display: grid; place-items: center;
   background: linear-gradient(145deg, var(--ink) 20%, var(--ember) 160%); box-shadow: var(--sh-1), inset 0 1px 0 rgba(255,255,255,.28);
@@ -323,6 +324,10 @@ a { color: inherit; text-decoration: none; }
 
 .view { overflow-y: auto; padding: var(--s6); min-height: 0; }
 .view-inner { max-width: 1080px; margin: 0 auto; display: grid; gap: var(--s6); }
+/* Top-bar open button: hidden by default; shown only when the sidebar is collapsed
+   (desktop) or always (mobile). The close toggle lives in the sidebar head,
+   exactly like the chat app's rail. */
+#navOpen { display: none; }
 @media (max-width: 900px) {
   .shell.show { grid-template-columns: 1fr; }
   .nav { position: fixed; inset: 0 auto 0 0; width: 240px; z-index: 40; transform: translateX(-100%);
@@ -331,8 +336,15 @@ a { color: inherit; text-decoration: none; }
   .shell[data-nav="open"] .nav { transform: none; }
   .nav-scrim { position: fixed; inset: 0; z-index: 35; background: rgba(16,14,11,.32); opacity: 0; pointer-events: none; transition: opacity var(--d); }
   .shell[data-nav="open"] .nav-scrim { opacity: 1; pointer-events: auto; }
+  /* On mobile the top bar always carries the drawer toggle (same as the chat app). */
+  #navOpen { display: grid; }
 }
-@media (min-width: 901px) { .nav-scrim, .nav-toggle { display: none; } }
+@media (min-width: 901px) {
+  .nav-scrim { display: none; }
+  .shell[data-side="collapsed"] { grid-template-columns: 0 minmax(0, 1fr); }
+  .shell[data-side="collapsed"] .nav { opacity: 0; pointer-events: none; }
+  .shell[data-side="collapsed"] #navOpen { display: grid; }
+}
 
 /* ---------------- cards / stat grid ---------------- */
 .section-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -423,6 +435,8 @@ textarea.tf { resize: vertical; min-height: 90px; font-family: var(--code); font
 .icon-btn { width: 30px; height: 30px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--ink-2); transition: background var(--d-fast), color var(--d-fast); flex: none; }
 .icon-btn:hover { background: var(--surface-3); color: var(--ink); }
 .icon-btn svg { width: 16px; height: 16px; }
+.icon-btn.sm { width: 28px; height: 28px; }
+.icon-btn.sm svg { width: 15px; height: 15px; }
 
 /* ---------------- pop / menu ---------------- */
 .pop {
@@ -503,14 +517,17 @@ kbd { font-family: var(--mono); font-size: 10px; color: var(--ink-3); border: 1p
   </div>
 </div>
 
-<div class="shell" id="shell" data-nav="closed">
+<div class="shell" id="shell" data-nav="closed" data-side="open">
   <div class="nav-scrim" id="navScrim"></div>
   <nav class="nav" id="nav">
     <div class="nav-head">
       <span class="mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="3.4"/></svg>
       </span>
-      <div><div>Saturday</div><small>Admin</small></div>
+      <div class="nav-brand"><div>Saturday</div><small>Admin</small></div>
+      <button class="icon-btn sm" id="navClose" aria-label="Hide navigation" title="Hide navigation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
+      </button>
     </div>
     <div class="nav-list" id="navList"></div>
     <div class="nav-foot">
@@ -528,8 +545,8 @@ kbd { font-family: var(--mono); font-size: 10px; color: var(--ink-3); border: 1p
       <span id="maintText">Maintenance mode is on — the product is showing a maintenance message to users.</span>
     </div>
     <header class="topbar">
-      <button class="icon-btn nav-toggle" id="navToggle" aria-label="Menu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <button class="icon-btn" id="navOpen" aria-label="Show navigation" title="Show navigation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
       </button>
       <h1 id="viewTitle">Overview</h1>
       <span class="sub" id="viewSub"></span>
@@ -1576,6 +1593,20 @@ window.App = {
     this.maintTimer = setInterval(() => this.pollMaintenance(), 30000);
   },
 
+  /* ---------------- sidebar toggle (same contract as the chat app's rail) ---------------- */
+  toggleNav() {
+    if (innerWidth <= 900) { const sh = $('#shell'); sh.dataset.nav = sh.dataset.nav === 'open' ? 'closed' : 'open'; return; }
+    const sh = $('#shell');
+    const collapsed = sh.dataset.side === 'collapsed';
+    sh.dataset.side = collapsed ? 'open' : 'collapsed';
+    AS.set('navside', sh.dataset.side);
+  },
+  syncNav() {
+    const sh = $('#shell');
+    if (innerWidth <= 900) { sh.dataset.side = 'open'; } // mobile uses the drawer, never the collapsed column
+    else { sh.dataset.nav = 'closed'; sh.dataset.side = AS.get('navside', 'open'); }
+  },
+
   bind() {
     $('#loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1592,8 +1623,11 @@ window.App = {
     });
 
     $('#logoutBtn').addEventListener('click', () => { Auth.logout(); this.toLogin(); });
-    $('#navToggle').addEventListener('click', () => { $('#shell').dataset.nav = $('#shell').dataset.nav === 'open' ? 'closed' : 'open'; });
+    $('#navClose').addEventListener('click', () => this.toggleNav());
+    $('#navOpen').addEventListener('click', () => this.toggleNav());
     $('#navScrim').addEventListener('click', () => { $('#shell').dataset.nav = 'closed'; });
+    addEventListener('resize', () => this.syncNav());
+    this.syncNav();
     $('#navList').addEventListener('click', (e) => {
       const b = e.target.closest('[data-nav]'); if (b) this.go(b.dataset.nav);
     });
